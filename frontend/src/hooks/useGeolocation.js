@@ -1,5 +1,5 @@
 // src/hooks/useGeolocation.js
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 // Coordenadas del Parque Principal de Itagüí como último recurso (solo si el
 // usuario deniega el permiso o el GPS no está disponible).
@@ -26,9 +26,18 @@ export const useGeolocation = () => {
   );
   const [loading, setLoading] = useState(geolocationSupported);
   const [isSimulated, setIsSimulated] = useState(!geolocationSupported);
+  const watchIdRef = useRef(null);
 
-  useEffect(() => {
+  // Extraído para poder volver a pedirlo con un toque explícito del usuario
+  // (`reintentar`): algunos navegadores móviles no muestran el diálogo nativo
+  // de permiso si la primera petición ocurre sola al cargar la página, sin
+  // ningún gesto del usuario de por medio.
+  const iniciarSeguimiento = useCallback(() => {
     if (!geolocationSupported) return;
+    if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+
+    setLoading(true);
+    setError(null);
 
     const handleSuccess = (pos) => {
       setPosition({
@@ -51,14 +60,23 @@ export const useGeolocation = () => {
     };
 
     // Seguimiento en vivo de la ubicación real del dispositivo.
-    const watchId = navigator.geolocation.watchPosition(handleSuccess, handleError, {
+    watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
       enableHighAccuracy: true,
       timeout: 10000,
       maximumAge: 0,
     });
-
-    return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  return { position, error, loading, isSimulated };
+  useEffect(() => {
+    iniciarSeguimiento();
+    return () => {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, [iniciarSeguimiento]);
+
+  // Nota: si el navegador ya bloqueó el permiso ("denied", no "prompt"),
+  // reintentar() no puede volver a mostrar el diálogo — eso solo lo deshace
+  // el usuario desde los ajustes de sitio de su navegador. Si el estado es
+  // "prompt" (nunca se decidió, o se reseteó), sí vuelve a preguntar.
+  return { position, error, loading, isSimulated, reintentar: iniciarSeguimiento };
 };

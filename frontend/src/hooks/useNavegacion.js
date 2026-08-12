@@ -39,7 +39,7 @@ function puntoDeSitio(sitio) {
 }
 
 export function useNavegacion() {
-  const { position, isSimulated, loading: gpsCargando, error: gpsError } = useGeolocation();
+  const { position, isSimulated, loading: gpsCargando, error: gpsError, reintentar: reintentarGps } = useGeolocation();
 
   const [estado, setEstado] = useState('inactivo'); // inactivo | calculando | navegando | llegado | error
   const [ruta, setRuta] = useState(null);
@@ -247,6 +247,7 @@ export function useNavegacion() {
     posicionSimulada: isSimulated,
     gpsCargando,
     gpsError,
+    reintentarGps,
 
     // Estado de la navegación
     estado,

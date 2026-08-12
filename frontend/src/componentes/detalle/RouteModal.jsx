@@ -49,6 +49,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     fueraDeRuta,
     error: navError,
     gpsError,
+    reintentarGps,
     ruta,
     instruccion,
     distanciaRestanteM,
@@ -333,6 +334,10 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
             ) : userLocationSimulated ? (
               <p className="route-gps-status route-gps-status--warn">
                 <RiErrorWarningLine /> No se pudo acceder a tu GPS; se usará el centro de Itagüí. Activa la ubicación para una ruta real.
+                {' '}
+                <button type="button" className="route-gps-status__retry" onClick={reintentarGps}>
+                  Reintentar
+                </button>
               </p>
             ) : (
               <p className="route-gps-status route-gps-status--ok">
