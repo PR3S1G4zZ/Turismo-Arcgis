@@ -30,14 +30,18 @@ const app = express();
 
 // Seguridad de cabeceras. Se permite el uso cruzado de recursos para que el
 // frontend (otro origen en desarrollo) pueda cargar las imágenes de /uploads.
-// img-src se amplía porque las fichas sin foto propia usan una imagen de
-// stock de Unsplash como respaldo (ver SiteCard.jsx / SiteDetailPage.jsx).
+// img-src se amplía para las fotos de respaldo de Unsplash (SiteCard.jsx /
+// SiteDetailPage.jsx) y los tiles del mapa de CARTO (InteractiveMap.jsx,
+// subdominios a/b/c/d.basemaps.cartocdn.com). connect-src se amplía porque
+// InteractiveMap.jsx geocodifica direcciones sin lat/lng directo contra
+// Nominatim desde el propio navegador (no pasa por el backend).
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'img-src': ["'self'", 'data:', 'https://images.unsplash.com'],
+      'img-src': ["'self'", 'data:', 'https://images.unsplash.com', 'https://*.basemaps.cartocdn.com'],
+      'connect-src': ["'self'", 'https://nominatim.openstreetmap.org'],
     },
   },
 }));
