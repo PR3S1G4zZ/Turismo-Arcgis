@@ -5,6 +5,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import multer from 'multer';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { config } from './config.js';
 import { initDb } from './db.js';
@@ -62,6 +65,19 @@ app.use('/api/google-calendar', googleCalendarRouter);
 
 // 404 para rutas de API desconocidas.
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Recurso no encontrado.' }));
+
+// Frontend compilado (despliegue de un solo servicio: mismo contenedor sirve
+// la API y la SPA). En desarrollo el frontend corre aparte con Vite y esta
+// carpeta no existe, así que esto no interfiere en local.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FRONTEND_DIST = path.resolve(__dirname, '../public');
+if (fs.existsSync(FRONTEND_DIST)) {
+  app.use(express.static(FRONTEND_DIST));
+  // Cualquier ruta que no sea /api ni /uploads es una vista de React Router
+  // (ej. /site/3): se le sirve el mismo index.html y el router del cliente
+  // decide qué mostrar.
+  app.get('*', (_req, res) => res.sendFile(path.join(FRONTEND_DIST, 'index.html')));
+}
 
 // Manejo centralizado de errores (incluye errores de multer y de validación).
 // eslint-disable-next-line no-unused-vars

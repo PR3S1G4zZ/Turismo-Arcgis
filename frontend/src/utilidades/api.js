@@ -1,7 +1,9 @@
 // src/utilidades/api.js
 // Cliente único de acceso al backend. La base se configura con VITE_API_URL
 // (ver frontend/.env.example); en desarrollo cae por defecto a localhost:3001.
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// OJO: usa "??" y no "||" — VITE_API_URL='' (mismo origen, monorepo detrás de
+// un solo servicio) es un valor válido y NO debe caer al default de abajo.
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 // ─── Manejo del token de sesión (JWT) ───────────────────────
 const TOKEN_KEY = 'turismo_token';
