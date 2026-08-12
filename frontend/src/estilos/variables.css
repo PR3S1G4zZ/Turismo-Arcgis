@@ -1,0 +1,87 @@
+/* ============================================================
+   src/styles/variables.css
+   Turismo Itagüí — Sistema de diseño (Stitch)
+   ============================================================ */
+
+:root {
+  /* --- MARCA ITAGÜÍ --- */
+  --color-primary:        #001d59;   /* Azul institucional profundo */
+  --color-primary-light:  #003087;   /* Azul alcaldía — primary-container */
+  --color-primary-faint:  rgba(0, 48, 135, 0.08); /* Fondo tenue de accent */
+  --color-accent:         #E8B400;   /* Dorado alcaldía — CTA, ratings, progress */
+  --color-accent-dark:    #C49A00;   /* Dorado oscuro — texto sobre fondos claros */
+  --color-accent-faint:   rgba(232, 180, 0, 0.15); /* Glow del dorado en dark */
+
+  /* --- SUPERFICIES (modo claro) --- */
+  --color-bg:             #faf8ff;   /* Fondo de página — blanco cálido lavanda de Stitch */
+  --color-surface:        #ffffff;   /* Cards, paneles */
+  --color-surface-alt:    #ebedff;   /* Hover de surface, surface-container */
+  --color-surface-low:    #f3f2ff;
+  --color-surface-high:   #e4e7fe;
+  --color-surface-highest:#dee1f8;
+  --color-overlay:        rgba(23, 27, 43, 0.55); /* Overlay de modal */
+
+  /* --- TEXTO (modo claro) --- */
+  --color-text-primary:   #171b2b;   /* Títulos principales (on-surface) */
+  --color-text-secondary: #444652;   /* Cuerpo, descripciones (on-surface-variant) */
+  --color-text-muted:     #747683;   /* Labels, metadata, timestamps (outline) */
+  --color-text-inverse:   #ffffff;   /* Texto sobre fondos oscuros */
+
+  /* --- BORDES (modo claro) --- */
+  --color-border:         #c4c6d4;   /* outline-variant */
+  --color-border-strong:  #747683;   /* outline */
+
+  /* --- ESTADOS --- */
+  --color-success:        #1B6E3A;
+  --color-danger:         #ba1a1a;   /* Error */
+
+  /* --- MODAL NOW-BAR — ESPECÍFICAS DEL MODAL DE RUTA (Adaptables a modo claro/oscuro) --- */
+  --modal-bg-from:        var(--color-surface);
+  --modal-bg-to:          var(--color-surface);
+  --modal-surface:        var(--color-surface-low);
+  --modal-border:         var(--color-border);
+  --modal-text-primary:   var(--color-text-primary);
+  --modal-text-secondary: var(--color-text-secondary);
+  --modal-accent:         #E8B400;   /* Dorado para barra de progreso */
+  --modal-progress-bg:    rgba(0, 48, 135, 0.12);
+  --modal-progress-glow:  rgba(232, 180, 0, 0.45); /* Halo dorado en el thumb */
+
+  /* --- TIPOGRAFÍA --- */
+  --font-display: 'Libre Franklin', system-ui, sans-serif;
+  --font-body:    'Quicksand', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* --- RADIOS — Reducidos según Stitch --- */
+  --radius-xs:  2px;   /* Badges, tags */
+  --radius-sm:  4px;   /* Botones, inputs, cards de info (ROUND_FOUR) */
+  --radius-md:  4px;   /* Cards principales */
+  --radius-lg:  4px;
+
+  /* --- SOMBRAS --- */
+  --shadow-card:  none;  /* Sin sombras para estilo editorial plano de Stitch */
+  --shadow-modal: 0 12px 36px rgba(23, 27, 43, 0.2);
+}
+
+/* ============================================================
+   MODO OSCURO — clase html.dark
+   ============================================================ */
+html.dark {
+  --color-bg:             #0C0E1A;
+  --color-surface:        #161929;
+  --color-surface-alt:    #1D2035;
+  --color-surface-low:    #121524;
+  --color-surface-high:   #1E223B;
+  --color-surface-highest:#262B4A;
+  --color-overlay:        rgba(0, 0, 0, 0.72);
+
+  --color-text-primary:   #E8E8F2;
+  --color-text-secondary: #9B9DB8;
+  --color-text-muted:     #6B6D88;
+
+  --color-border:         rgba(232, 180, 0, 0.12);
+  --color-border-strong:  rgba(232, 180, 0, 0.22);
+
+  --color-primary-faint:  rgba(0, 80, 179, 0.18);
+  --modal-progress-bg:    rgba(255, 255, 255, 0.15);
+  --shadow-card:  none;
+}

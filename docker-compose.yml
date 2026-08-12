@@ -1,0 +1,60 @@
+# docker-compose.yml
+# Levanta ÚNICAMENTE la base de datos MySQL (y un panel Adminer opcional) en
+# contenedores. El backend y el frontend siguen corriendo con Node/Vite en el
+# host, tal como ya están montados (backend/.env con DB_HOST=localhost).
+#
+# Uso:
+#   cp .env.example .env    # ajusta las contraseñas
+#   docker compose up -d
+#   docker compose logs -f mysql   # ver el arranque / la carga del esquema
+#
+# Tras el primer arranque, copia las mismas credenciales a backend/.env
+# (DB_HOST=localhost, DB_PORT=igual a MYSQL_PORT, DB_USER=MYSQL_USER,
+# DB_PASSWORD=MYSQL_PASSWORD, DB_NAME=MYSQL_DATABASE).
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: turismo-itagui-mysql
+    restart: unless-stopped
+    environment:
+      # Por defecto exige contraseña de root. Pon MYSQL_ALLOW_EMPTY_PASSWORD=yes
+      # en tu .env SOLO si tu backend/.env usa DB_USER=root con DB_PASSWORD
+      # vacío (como en desarrollo local); en ese caso MYSQL_ROOT_PASSWORD se
+      # ignora. En producción usa siempre una contraseña real.
+      MYSQL_ALLOW_EMPTY_PASSWORD: ${MYSQL_ALLOW_EMPTY_PASSWORD:-no}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-turismo_itagui}
+      MYSQL_USER: ${MYSQL_USER:-turismo_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
+    ports:
+      # 3307 por defecto: tu backend/.env actual ya usa DB_PORT=3307 (probablemente
+      # porque el 3306 lo ocupa un MySQL local). Ajusta si no es tu caso.
+      - '${MYSQL_PORT:-3307}:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Solo se ejecuta la primera vez (volumen de datos vacío). El backend
+      # también crea el esquema solo al arrancar (initDb, idempotente), así
+      # que esto es principalmente para inspeccionar/desplegar la BD a mano.
+      - ./BD/turismo_itagui.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-p${MYSQL_ROOT_PASSWORD:-}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Panel web para inspeccionar la base de datos sin cliente MySQL instalado.
+  # http://localhost:8080 — servidor "mysql", mismo usuario/contraseña del .env.
+  adminer:
+    image: adminer:latest
+    container_name: turismo-itagui-adminer
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

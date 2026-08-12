@@ -1,0 +1,162 @@
+/* ============================================================
+   src/components/detail/InteractiveMap.css
+   Turismo Itagüí — Contenedor del Mapa e Iconos Pulsantes
+   ============================================================ */
+
+.map-container {
+  width: 100%;
+  height: 480px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border-strong);
+  overflow: hidden;
+  position: relative;
+  box-shadow: none;
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-surface-alt) !important;
+}
+
+/* GPS Pulsante */
+.gps-pulse-icon {
+  position: relative;
+}
+
+.gps-pulse-ring {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--color-primary);
+  border-radius: 50%;
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  animation: pulse 1.8s infinite ease-out;
+}
+
+.gps-pulse-dot {
+  width: 12px;
+  height: 12px;
+  background-color: var(--color-primary);
+  border: 2px solid #FFFFFF;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Site Marker Personalizado */
+.site-map-icon {
+  position: relative;
+}
+
+.site-marker-pin {
+  width: 18px;
+  height: 18px;
+  background-color: var(--color-accent); /* Oro */
+  border: 3px solid var(--color-primary); /* Azul */
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.site-marker-pin:hover {
+  transform: scale(1.2);
+}
+
+html.dark .gps-pulse-ring {
+  border-color: var(--color-accent);
+}
+
+html.dark .gps-pulse-dot {
+  background-color: var(--color-accent);
+}
+
+html.dark .site-marker-pin {
+  border-color: var(--color-surface-alt);
+}
+
+/* Botón Iniciar Ruta flotante */
+.map-actions {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 90%;
+  max-width: 320px;
+}
+
+.map-actions__btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--color-primary);
+  color: #FFFFFF;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 12px 20px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 48, 135, 0.3);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.map-actions__btn:hover {
+  background-color: var(--color-primary-light);
+}
+
+.map-actions__btn:active {
+  transform: scale(0.98);
+}
+
+html.dark .map-actions__btn {
+  background-color: var(--color-accent);
+  color: #111827;
+  box-shadow: 0 4px 12px rgba(232, 180, 0, 0.25);
+}
+
+html.dark .map-actions__btn:hover {
+  background-color: var(--color-accent-dark);
+}
+
+/* Popup de Leaflet */
+.leaflet-popup-content-wrapper {
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  font-family: var(--font-body);
+  border: 1px solid var(--color-border);
+}
+
+.leaflet-popup-tip {
+  background: var(--color-surface) !important;
+}
+
+.leaflet-popup-content h4 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--color-text-primary);
+}
+
+.leaflet-popup-content p {
+  font-size: 12px;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+/* Botón para volver a centrar la cámara sobre el usuario durante la
+   navegación. Se ubica arriba para no chocar con la isla de ruta. */
+.map-actions--recentrar {
+  top: 12px;
+  bottom: auto;
+  width: auto;
+  max-width: none;
+}

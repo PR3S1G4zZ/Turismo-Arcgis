@@ -1,0 +1,192 @@
+/* ============================================================
+   src/components/home/EventSlider.css
+   ============================================================ */
+
+.slider {
+  position: relative;
+  width: 100%;
+  height: 480px;
+  background-color: #000;
+  overflow: hidden;
+  border-radius: var(--radius-md); /* 4px (ROUND_FOUR) */
+  margin: 24px 0 48px;
+  box-shadow: none;
+  border: 1px solid var(--color-border);
+}
+
+.slider__track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.6s cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+.slider__slide {
+  position: relative;
+  min-width: 100%;
+  height: 100%;
+}
+
+.slider__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  grayscale: 10%;
+  transition: transform 0.6s ease;
+}
+
+.slider__slide:hover .slider__img {
+  transform: scale(1.02);
+}
+
+.slider__overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(23, 27, 43, 0.9) 0%, rgba(23, 27, 43, 0.4) 50%, transparent 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 48px 48px;
+  color: #fff;
+}
+
+.slider__badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--color-accent); /* Dorado Alcaldía */
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.slider__title {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.slider__desc {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 8px;
+  max-width: 600px;
+}
+
+/* Indicadores de puntos (a la izquierda) */
+.slider__dots {
+  position: absolute;
+  bottom: 20px;
+  left: 48px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.slider__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background-color: rgba(255, 255, 255, 0.35);
+  border: none;
+  cursor: pointer;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.slider__dot--active {
+  width: 24px;
+  background-color: var(--color-accent);
+}
+
+/* Controles de Navegación del Carrusel en la parte inferior derecha */
+.slider__controls {
+  position: absolute;
+  bottom: 38px;
+  right: 48px;
+  z-index: 10;
+  display: flex;
+  gap: 12px;
+}
+
+.slider__control-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(23, 27, 43, 0.3);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slider__control-btn:hover {
+  background: var(--color-accent);
+  color: var(--color-primary);
+  border-color: var(--color-accent);
+  transform: scale(1.05);
+}
+
+@media (max-width: 640px) {
+  .slider {
+    height: 300px;
+    margin: 16px 0 32px;
+  }
+  
+  .slider__overlay {
+    padding: 24px 20px;
+    background: linear-gradient(to top, rgba(23, 27, 43, 0.95) 0%, rgba(23, 27, 43, 0.6) 60%, transparent 100%);
+  }
+  
+  .slider__title {
+    font-size: 22px;
+    line-height: 1.25;
+  }
+  
+  .slider__desc {
+    font-size: 13px;
+    max-width: 100%;
+    margin-top: 6px;
+  }
+
+  .slider__dots {
+    left: 20px;
+    bottom: 20px;
+  }
+
+  .slider__controls {
+    right: 20px;
+    bottom: 12px;
+    gap: 6px;
+  }
+
+  .slider__control-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  @media (max-width: 480px) {
+    .slider__controls {
+      display: none; /* Swipe es el principal gesto táctil en móviles pequeños */
+    }
+    .slider__dots {
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 16px;
+    }
+    .slider__overlay {
+      align-items: center;
+      text-align: center;
+      padding-bottom: 36px;
+    }
+  }
+}

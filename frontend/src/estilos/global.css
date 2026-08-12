@@ -1,0 +1,301 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Libre+Franklin:wght@400;600;700&family=Quicksand:wght@400;500;600;700&display=swap');
+
+/* ============================================================
+   src/styles/global.css
+   Turismo Itagüí — Reset y Estilos Globales
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* Scrollbar personalizado */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-light);
+}
+
+/* Utilidades de contenedor */
+.container {
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* Estilo para inputs comunes (estilo underline minimalista de Stitch) */
+.input-field {
+  width: 100%;
+  padding: 10px 0px;
+  background-color: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  outline: none;
+  font-size: 14px;
+  transition: border-color 0.15s ease;
+  color: var(--color-text-primary);
+}
+
+.input-field:focus {
+  border-bottom-color: var(--color-primary-light);
+  box-shadow: none;
+}
+
+html.dark .input-field:focus {
+  border-bottom-color: var(--color-accent);
+  box-shadow: none;
+}
+
+/* Grid de sitios */
+.sites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
+@media (max-width: 640px) {
+  .sites-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .container {
+    padding: 0 12px;
+  }
+}
+
+/* Transición suave para todos los elementos con hover */
+.interactive-element {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================================
+   Botones del Sistema de Diseño (Stitch Style)
+   ============================================================ */
+.btn-primary, .btn-secondary, .btn-danger {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-transform: none;
+  outline: none;
+}
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: #ffffff;
+  border: 1px solid var(--color-primary);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-light);
+  border-color: var(--color-primary-light);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+html.dark .btn-primary {
+  background-color: var(--color-accent);
+  color: #111827;
+  border-color: var(--color-accent);
+}
+
+html.dark .btn-primary:hover {
+  background-color: var(--color-accent-dark);
+  border-color: var(--color-accent-dark);
+}
+
+.btn-secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1.5px solid var(--color-border-strong);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-surface-alt);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+}
+
+.btn-danger {
+  background-color: rgba(186, 26, 26, 0.1);
+  color: var(--color-danger);
+  border: 1.5px solid rgba(186, 26, 26, 0.2);
+}
+
+.btn-danger:hover {
+  background-color: var(--color-danger);
+  color: #ffffff;
+  border-color: var(--color-danger);
+  transform: translateY(-1px);
+}
+
+.btn-danger:active {
+  transform: translateY(0);
+}
+
+/* ============================================================
+   Custom Dropdown (Stitch Style)
+   ============================================================ */
+.custom-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.custom-dropdown-trigger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  user-select: none;
+}
+
+.custom-dropdown-trigger:hover {
+  border-color: var(--color-primary-light);
+}
+
+.custom-dropdown-trigger:focus,
+.custom-dropdown-trigger.open {
+  outline: none;
+  border-color: var(--color-primary-light);
+  box-shadow: 0 0 0 3px var(--color-primary-faint);
+}
+
+html.dark .custom-dropdown-trigger:hover,
+html.dark .custom-dropdown-trigger.open {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-faint);
+}
+
+.dropdown-arrow {
+  color: var(--color-text-secondary);
+  transition: transform 0.2s ease;
+  font-size: 1.25rem;
+}
+
+.dropdown-arrow.open {
+  transform: rotate(180deg);
+}
+
+.custom-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  z-index: 50;
+  max-height: 250px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-modal);
+  animation: dropdownEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdownEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.custom-dropdown-option {
+  padding: 0.75rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.custom-dropdown-option:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.custom-dropdown-option.selected {
+  background-color: var(--color-primary-faint);
+  color: var(--color-primary-light);
+  font-weight: 600;
+}
+
+html.dark .custom-dropdown-option.selected {
+  background-color: var(--color-accent-faint);
+  color: var(--color-accent);
+}
+
