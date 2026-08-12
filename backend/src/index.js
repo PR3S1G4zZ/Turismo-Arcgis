@@ -30,7 +30,17 @@ const app = express();
 
 // Seguridad de cabeceras. Se permite el uso cruzado de recursos para que el
 // frontend (otro origen en desarrollo) pueda cargar las imágenes de /uploads.
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+// img-src se amplía porque las fichas sin foto propia usan una imagen de
+// stock de Unsplash como respaldo (ver SiteCard.jsx / SiteDetailPage.jsx).
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'img-src': ["'self'", 'data:', 'https://images.unsplash.com'],
+    },
+  },
+}));
 
 // En producción manda la lista blanca de CORS_ORIGIN. En desarrollo se acepta
 // cualquier localhost: Vite salta de puerto (5173 → 5174 → …) cuando el
