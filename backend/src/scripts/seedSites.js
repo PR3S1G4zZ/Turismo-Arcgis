@@ -1,7 +1,8 @@
 // backend/src/scripts/seedSites.js
 // Datos semilla para probar el catálogo, el mapa y la navegación en un
 // despliegue nuevo (p. ej. Railway) sin depender de que alguien los cargue a
-// mano desde el panel. Idempotente: no inserta nada si ya hay sitios.
+// mano desde el panel. Idempotente por nombre: se puede volver a correr para
+// agregar sitios nuevos de la lista sin duplicar los que ya existen.
 // Coordenadas verificadas contra el servicio real de rutas de ArcGIS (todas
 // resuelven un trayecto real por calle, no solo una posición en el mapa).
 // Uso: npm run seed-sites
@@ -68,26 +69,51 @@ const SITIOS_SEMILLA = [
     hours: '10:00am - 8:00pm',
     tags: ['comercio', 'compras'],
   },
+  {
+    name: 'Parque Principal de Itagüí',
+    category: 'Recreación',
+    zone: 'Centro',
+    description: 'Plaza principal del municipio, junto a la Alcaldía y la Basílica de Itagüí.',
+    rating: 4.6,
+    address: 'Parque Principal, Itagüí',
+    lat: 6.1723858,
+    lng: -75.609416,
+    hours: '24 horas',
+    tags: ['parque', 'centro'],
+  },
+  {
+    name: 'SENA Calatrava',
+    category: 'Educación',
+    zone: 'Norte',
+    description: 'Centro de formación del SENA en el sector de Calatrava.',
+    rating: 4.3,
+    address: 'Calatrava, Itagüí',
+    lat: 6.1807225,
+    lng: -75.6063286,
+    hours: '7:00am - 9:00pm',
+    tags: ['educación', 'formación'],
+  },
 ];
 
 async function seedSites() {
   await initDb();
 
-  const [{ total }] = await query('SELECT COUNT(*) AS total FROM sites');
-  if (total > 0) {
-    console.log(`[seed-sites] Ya hay ${total} sitio(s) en la base de datos; no se inserta nada.`);
-    return;
-  }
-
+  let insertados = 0;
   for (const s of SITIOS_SEMILLA) {
+    const [{ total }] = await query('SELECT COUNT(*) AS total FROM sites WHERE name = ?', [s.name]);
+    if (total > 0) {
+      console.log(`[seed-sites] Ya existe: ${s.name}`);
+      continue;
+    }
     await query(
       `INSERT INTO sites (name, category, zone, description, images, rating, address, lat, lng, hours, phone, tags, visits)
        VALUES (?, ?, ?, ?, JSON_ARRAY(), ?, ?, ?, ?, ?, '', ?, 0)`,
       [s.name, s.category, s.zone, s.description, s.rating, s.address, s.lat, s.lng, s.hours, JSON.stringify(s.tags)]
     );
     console.log(`[seed-sites] Insertado: ${s.name}`);
+    insertados += 1;
   }
-  console.log(`[seed-sites] Listo: ${SITIOS_SEMILLA.length} sitios de ejemplo cargados.`);
+  console.log(`[seed-sites] Listo: ${insertados} sitio(s) nuevo(s) cargado(s) (${SITIOS_SEMILLA.length} en total en la lista).`);
 }
 
 try {
