@@ -92,6 +92,8 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const [tokenListo, setTokenListo] = useState(false);
   // Se activa si ArcGIS rechaza el token: entonces se cae al respaldo de CARTO.
   const [arcgisFallo, setArcgisFallo] = useState(false);
+  // Mensaje si el basemap no logra cargar (diagnóstico visible en el móvil).
+  const [mapError, setMapError] = useState(null);
 
   // Colores de marca leídos de las variables CSS (MapLibre no entiende var()).
   // Se releen al cambiar de tema.
@@ -265,7 +267,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     <div className="map-container">
       <Map
         ref={mapRef}
-        onLoad={() => setMapListo(true)}
+        onLoad={() => {
+          setMapListo(true);
+          setMapError(null);
+        }}
         initialViewState={{
           longitude: mapCenter[1],
           latitude: mapCenter[0],
@@ -274,14 +279,19 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         mapStyle={mapStyle}
         transformRequest={transformRequest}
         onError={(e) => {
-          // Si ArcGIS rechaza el token (auth), se cambia al basemap de respaldo
-          // en vez de dejar el mapa en blanco. Los errores transitorios de tiles
-          // (sin código de auth) se ignoran para no cambiar todo el estilo.
           const status = e?.error?.status;
+          const msg = e?.error?.message || String(e?.error || 'error desconocido');
+          console.error('[mapa] MapLibre error:', status, msg, e);
+          // Si ArcGIS rechaza el token (auth), se cambia al basemap de respaldo
+          // en vez de dejar el mapa en blanco.
           if (token && !arcgisFallo && [401, 403, 498, 499].includes(status)) {
             console.warn(`[mapa] Basemap de ArcGIS rechazado (${status}); usando respaldo CARTO.`);
             setArcgisFallo(true);
+            return;
           }
+          // El aviso solo aparece si el mapa aún no cargó su estilo (fallo real
+          // del basemap); los errores transitorios de tiles ya en marcha se ignoran.
+          if (!mapListo) setMapError(`${status ? status + ' – ' : ''}${msg}`);
         }}
         onDragStart={() => {
           if (enSeguimiento) dejarDeSeguir();
@@ -379,6 +389,14 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           </Popup>
         )}
       </Map>
+
+      {/* Diagnóstico: el basemap no cargó (visible en el móvil). */}
+      {mapError && (
+        <div className="map-error-banner">
+          <span>Mapa base no cargó: {mapError}</span>
+          <button onClick={() => setMapError(null)} aria-label="Cerrar">×</button>
+        </div>
+      )}
 
       {/* Volver a centrar la cámara sobre el usuario tras mover el mapa. */}
       {enSeguimiento && !siguiendo && (
