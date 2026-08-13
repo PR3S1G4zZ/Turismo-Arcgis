@@ -126,6 +126,23 @@ export const rutasApi = {
   estado: () => request('/api/rutas/estado'),
 };
 
+// ─── Basemap del mapa ───────────────────────────────────────
+export const mapaApi = {
+  /**
+   * Token para el basemap vectorial de ArcGIS. El backend responde 204 (→ null)
+   * si no hay credenciales ArcGIS; en ese caso el mapa usa el respaldo de CARTO.
+   * @returns {Promise<string|null>}
+   */
+  token: async () => {
+    try {
+      const data = await request('/api/mapa/token');
+      return data?.token || null;
+    } catch {
+      return null;
+    }
+  },
+};
+
 // ─── Ajustes ────────────────────────────────────────────────
 export const settingsApi = {
   get: () => request('/api/settings'),
