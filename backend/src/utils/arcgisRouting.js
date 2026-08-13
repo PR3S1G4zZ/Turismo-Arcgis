@@ -62,6 +62,23 @@ function descartarToken() {
   cacheTokenExpira = 0;
 }
 
+/**
+ * Token para el basemap vectorial de ArcGIS que consume el cliente (MapLibre).
+ * Reutiliza el mismo token de aplicación del ruteo (API key u OAuth) y añade
+ * cuándo expira para que el navegador lo renueve. Con API key no hay
+ * vencimiento conocido: se informa un horizonte amplio y prudente.
+ *
+ * El token viaja al cliente restringido por el `referer` registrado en las
+ * credenciales; es el patrón estándar de Esri para basemaps en el navegador.
+ */
+export async function obtenerTokenBasemap() {
+  const token = await obtenerToken();
+  const expiraEn = config.arcgis.apiKey
+    ? Date.now() + 24 * 60 * 60 * 1000 // API key: se refresca cada día por prudencia.
+    : cacheTokenExpira; // OAuth: vencimiento real del token cacheado.
+  return { token, expiraEn };
+}
+
 // ─── Modos de desplazamiento ────────────────────────────────
 // El servicio exige `travelMode` como OBJETO JSON completo, no como el nombre
 // ("Walking Time" a secas falla). Los modos los define la organización en

@@ -1,13 +1,33 @@
 // src/hooks/useGeolocation.js
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { distanciaM, rumbo } from '../utilidades/geoRuta';
 
 // Coordenadas del Parque Principal de Itagüí como último recurso (solo si el
 // usuario deniega el permiso o el GPS no está disponible).
 const FALLBACK_LAT = 6.1724;
 const FALLBACK_LNG = -75.6091;
 
+// Umbrales para deducir el rumbo. El GPS solo da `coords.heading` fiable cuando
+// hay velocidad; a pie casi siempre viene null, así que se calcula entre
+// lecturas separadas por al menos unos metros (menos que eso es ruido del GPS).
+const VELOCIDAD_MIN_MS = 0.5;
+const DESPLAZAMIENTO_MIN_M = 5;
+
 const geolocationSupported =
   typeof navigator !== 'undefined' && 'geolocation' in navigator;
+
+/**
+ * Mezcla circular de dos rumbos para que la flecha no salte con el ruido del
+ * GPS. Se promedia en el plano (seno/coseno) para cruzar bien el corte 359°→0°.
+ */
+function suavizarRumbo(anterior, nuevo, factor = 0.35) {
+  if (anterior == null) return nuevo;
+  const ar = anterior * (Math.PI / 180);
+  const nr = nuevo * (Math.PI / 180);
+  const x = Math.cos(ar) * (1 - factor) + Math.cos(nr) * factor;
+  const y = Math.sin(ar) * (1 - factor) + Math.sin(nr) * factor;
+  return ((Math.atan2(y, x) * (180 / Math.PI)) + 360) % 360;
+}
 
 /**
  * Ubicación REAL del usuario, en vivo. Usa watchPosition para seguir la posición
@@ -27,6 +47,10 @@ export const useGeolocation = () => {
   const [loading, setLoading] = useState(geolocationSupported);
   const [isSimulated, setIsSimulated] = useState(!geolocationSupported);
   const watchIdRef = useRef(null);
+  // Última coordenada cruda y último rumbo suavizado, para deducir la dirección
+  // de marcha entre lecturas sin re-suscribir el watch en cada render.
+  const ultimaCoordRef = useRef(null);
+  const rumboRef = useRef(null);
 
   // Extraído para poder volver a pedirlo con un toque explícito del usuario
   // (`reintentar`): algunos navegadores móviles no muestran el diálogo nativo
@@ -40,10 +64,31 @@ export const useGeolocation = () => {
     setError(null);
 
     const handleSuccess = (pos) => {
+      const { latitude, longitude, accuracy, heading: rumboGps, speed } = pos.coords;
+
+      // Rumbo, en orden de preferencia: 1) el del GPS si hay movimiento real,
+      // 2) el deducido entre la lectura anterior y esta, 3) el último conocido.
+      let rumboCrudo = null;
+      if (Number.isFinite(rumboGps) && (speed == null || speed > VELOCIDAD_MIN_MS)) {
+        rumboCrudo = rumboGps;
+      } else if (ultimaCoordRef.current) {
+        const previa = ultimaCoordRef.current;
+        if (distanciaM([previa.lat, previa.lng], [latitude, longitude]) >= DESPLAZAMIENTO_MIN_M) {
+          rumboCrudo = rumbo([previa.lat, previa.lng], [latitude, longitude]);
+        }
+      }
+      if (rumboCrudo != null) {
+        rumboRef.current = suavizarRumbo(rumboRef.current, rumboCrudo);
+      }
+      ultimaCoordRef.current = { lat: latitude, lng: longitude };
+
       setPosition({
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
+        lat: latitude,
+        lng: longitude,
+        accuracy,
+        // Dirección de marcha en grados (0–360) o null mientras no se conozca.
+        heading: rumboRef.current,
+        speed: Number.isFinite(speed) ? speed : null,
       });
       setError(null);
       setIsSimulated(false);

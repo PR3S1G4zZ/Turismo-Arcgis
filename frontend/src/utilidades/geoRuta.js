@@ -21,6 +21,21 @@ export function distanciaM(a, b) {
   return 2 * RADIO_TIERRA_M * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+/**
+ * Rumbo inicial en grados (0–360, horario desde el norte) para ir de `a` a `b`,
+ * ambos [lat, lng]. Es el respaldo del heading del GPS: cuando el navegador no
+ * entrega `coords.heading` (típico al ir a pie), se deduce entre dos lecturas.
+ */
+export function rumbo(a, b) {
+  const lat1 = a[0] * GRADOS_A_RAD;
+  const lat2 = b[0] * GRADOS_A_RAD;
+  const dLng = (b[1] - a[1]) * GRADOS_A_RAD;
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  const grados = Math.atan2(y, x) / GRADOS_A_RAD;
+  return (grados + 360) % 360;
+}
+
 /** Convierte [lat, lng] a metros en un plano local centrado en `ref`. */
 function aPlano(punto, ref) {
   const cosLat = Math.cos(ref[0] * GRADOS_A_RAD);

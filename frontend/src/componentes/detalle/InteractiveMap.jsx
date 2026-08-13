@@ -1,104 +1,142 @@
 // src/componentes/detalle/InteractiveMap.jsx
-import { useEffect, useState, useContext, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvent, Polyline, Circle } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+// Mapa de navegación estilo Waze/Google Maps sobre MapLibre GL:
+//  - la ubicación del usuario es una FLECHA que apunta a su dirección de marcha,
+//  - al navegar, el MAPA ROTA para que la marcha quede siempre hacia arriba
+//    (modo course-up) con una leve inclinación 3D,
+//  - el basemap es el vectorial de ArcGIS ("navigation"), con respaldo a CARTO.
+// El motor de navegación (rutas, voz, recálculo) vive en useNavegacion y no se
+// toca aquí: este componente solo dibuja y mueve la cámara.
+import { useEffect, useState, useContext, useCallback, useRef, useMemo } from 'react';
+import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { RiNavigationLine, RiFocus3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
+import { mapaApi } from '../../utilidades/api';
 import './InteractiveMap.css';
 
 // Zoom cercano mientras se navega, para ver la calle y la siguiente esquina.
 const ZOOM_NAVEGACION = 17;
 const ZOOM_VISTA = 15;
+// Inclinación de la cámara al navegar: el toque 3D de Waze/Google (grados).
+const PITCH_NAVEGACION = 50;
 
-// Componente auxiliar para cambiar la vista del mapa reactivamente
-function ChangeView({ center, zoom, activo = true }) {
-  const map = useMap();
-  useEffect(() => {
-    if (center && activo) {
-      map.setView(center, zoom);
-    }
-  }, [center, zoom, map, activo]);
-  return null;
+// Basemaps de respaldo (vectoriales, sin token) si ArcGIS no está disponible.
+const CARTO_CLARO = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
+const CARTO_OSCURO = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+/** URL del estilo vectorial de ArcGIS ("navigation" / "navigation-night"). */
+const estiloArcgis = (isDark, token) =>
+  `https://basemapstyles-api.arcgis.com/arcgis/rest/services/styles/v2/styles/arcgis/${
+    isDark ? 'navigation-night' : 'navigation'
+  }?token=${encodeURIComponent(token)}`;
+
+// ─── Helpers geométricos (todo en [lng, lat] para GeoJSON/MapLibre) ─────────
+
+const RADIO_TIERRA_M = 6371000;
+
+/** Punto a `distM` metros y `rumboDeg` grados de (lat,lng). Devuelve [lng,lat]. */
+function puntoDestino(lat, lng, rumboDeg, distM) {
+  const d = distM / RADIO_TIERRA_M;
+  const br = (rumboDeg * Math.PI) / 180;
+  const lat1 = (lat * Math.PI) / 180;
+  const lng1 = (lng * Math.PI) / 180;
+  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(br));
+  const lng2 =
+    lng1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+  return [(lng2 * 180) / Math.PI, (lat2 * 180) / Math.PI];
 }
 
-/**
- * Cámara de navegación: sigue al usuario como un navegador de coche. El
- * seguimiento se suspende en cuanto se arrastra el mapa (para poder mirar el
- * recorrido) y se reanuda con el botón de recentrar.
- */
-function CamaraNavegacion({ posicion, siguiendo, onArrastrar }) {
-  const map = useMap();
-  useMapEvent('dragstart', () => onArrastrar());
-
-  useEffect(() => {
-    if (!siguiendo || !posicion) return;
-    map.setView([posicion.lat, posicion.lng], Math.max(map.getZoom(), ZOOM_NAVEGACION), {
-      animate: true,
-      duration: 0.6,
-    });
-  }, [posicion, siguiendo, map]);
-
-  return null;
+/** Polígono (círculo) del halo de precisión del GPS, en metros. */
+function circuloGeoJSON(lat, lng, radioM, pasos = 48) {
+  const anillo = [];
+  for (let i = 0; i <= pasos; i++) anillo.push(puntoDestino(lat, lng, (i / pasos) * 360, radioM));
+  return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [anillo] }, properties: {} };
 }
 
-/** Encuadra la ruta completa una sola vez, al recibirla. */
-function EncuadrarRuta({ puntos }) {
-  const map = useMap();
-  useEffect(() => {
-    if (puntos && puntos.length > 1) {
-      map.fitBounds(L.latLngBounds(puntos), { padding: [50, 50] });
-    }
-  }, [puntos, map]);
-  return null;
+/** LineString GeoJSON a partir de puntos [lat,lng]; null si hay menos de 2. */
+function lineaGeoJSON(puntos) {
+  if (!puntos || puntos.length < 2) return null;
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: puntos.map(([lat, lng]) => [lng, lat]) },
+    properties: {},
+  };
 }
 
-// Icono personalizado para el GPS del usuario (Círculo azul/dorado pulsante)
-const gpsIcon = L.divIcon({
-  className: 'gps-pulse-icon',
-  html: '<div class="gps-pulse-ring"></div><div class="gps-pulse-dot"></div>',
-  iconSize: [12, 12],
-  iconAnchor: [6, 6]
-});
-
-// Icono personalizado para el sitio turístico (Círculo con borde azul y centro dorado)
-const siteIcon = L.divIcon({
-  className: 'site-map-icon',
-  html: '<div class="site-marker-pin"></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-  popupAnchor: [0, -12]
-});
+/** Flecha de navegación del usuario (SVG). Se rota por CSS según el modo. */
+const FlechaUsuario = ({ rotacion }) => (
+  <div className="user-arrow" style={{ transform: `rotate(${rotacion}deg)` }}>
+    <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+      <circle className="user-arrow__halo" cx="18" cy="18" r="16" />
+      <path className="user-arrow__shape" d="M18 5 L28 29 L18 23 L8 29 Z" />
+    </svg>
+  </div>
+);
 
 export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const navegacion = useContext(NavegacionContext);
   const { posicion: userPosition, tramos, ruta, navegando, llegado } = navegacion || {};
 
+  const mapRef = useRef(null);
+  const [mapListo, setMapListo] = useState(false);
+
   const [coordinates, setCoordinates] = useState(() => {
     if (site.lat && site.lng) return [parseFloat(site.lat), parseFloat(site.lng)];
     return null;
   });
-  const [loading, setLoading] = useState(() => {
-    if (site.lat && site.lng) return false;
-    return true;
-  });
+  const [loading, setLoading] = useState(() => !(site.lat && site.lng));
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
+  // Token del basemap de ArcGIS (null → se usa el respaldo de CARTO).
+  const [token, setToken] = useState(null);
+  const [tokenListo, setTokenListo] = useState(false);
+  // Se activa si ArcGIS rechaza el token: entonces se cae al respaldo de CARTO.
+  const [arcgisFallo, setArcgisFallo] = useState(false);
+
+  // Colores de marca leídos de las variables CSS (MapLibre no entiende var()).
+  // Se releen al cambiar de tema.
+  const colores = useMemo(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      acento: cs.getPropertyValue('--color-accent').trim() || '#E8B400',
+      tenue: cs.getPropertyValue('--color-text-secondary').trim() || '#8A8F98',
+    };
+    // `isDark` no se usa en el cuerpo pero es la señal de que las variables CSS
+    // cambiaron: sin él, los colores quedarían congelados al cambiar de tema.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDark]);
+
   // La cámara sigue al usuario mientras navega, salvo que él mueva el mapa.
-  // El mapa de navegación se monta al abrirse, así que arranca siempre en true.
   const [siguiendo, setSiguiendo] = useState(true);
   const dejarDeSeguir = useCallback(() => setSiguiendo(false), []);
 
+  // Popups (uno a la vez): 'site' | 'user' | null.
+  const [popup, setPopup] = useState(null);
+
+  // Tema claro/oscuro: reacciona al cambio de clase en <html>.
   useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    });
+    const observer = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains('dark'))
+    );
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, []);
 
+  // Token del basemap, una vez al montar.
   useEffect(() => {
-    // Si tiene coordenadas específicas guardadas, las usamos directamente (ya asignadas en lazy init, pero mantenemos por cambios de props)
+    let vivo = true;
+    mapaApi.token().then((t) => {
+      if (!vivo) return;
+      setToken(t);
+      setTokenListo(true);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Resolución de coordenadas del sitio (lat/lng directo o geocodificación).
+  useEffect(() => {
     if (site.lat && site.lng) {
       Promise.resolve().then(() => {
         setCoordinates([parseFloat(site.lat), parseFloat(site.lng)]);
@@ -106,7 +144,6 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       });
       return;
     }
-
     if (!site.address) {
       Promise.resolve().then(() => {
         setCoordinates([6.1724, -75.6091]);
@@ -114,38 +151,24 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       });
       return;
     }
-
-    Promise.resolve().then(() => {
-      setLoading(true);
-    });
-    const query = site.address.toLowerCase().includes('itagüí') || site.address.toLowerCase().includes('itagui')
-      ? site.address
-      : `${site.address}, Itagüí, Colombia`;
+    Promise.resolve().then(() => setLoading(true));
+    const query =
+      site.address.toLowerCase().includes('itagüí') || site.address.toLowerCase().includes('itagui')
+        ? site.address
+        : `${site.address}, Itagüí, Colombia`;
 
     fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.length > 0) {
-          setCoordinates([parseFloat(data[0].lat), parseFloat(data[0].lon)]);
-        } else {
-          setCoordinates([6.1724, -75.6091]);
-        }
+      .then((res) => res.json())
+      .then((data) => {
+        setCoordinates(data && data.length > 0 ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] : [6.1724, -75.6091]);
         setLoading(false);
       })
-      .catch(err => {
-        console.error("Dynamic geocoding error:", err);
+      .catch((err) => {
+        console.error('Dynamic geocoding error:', err);
         setCoordinates([6.1724, -75.6091]);
         setLoading(false);
       });
   }, [site.address, site.lat, site.lng]);
-
-  if (loading || !coordinates) {
-    return (
-      <div className="map-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-surface-alt)', minHeight: '300px' }}>
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: '13px' }}>Cargando ubicación en el mapa...</p>
-      </div>
-    );
-  }
 
   const siteCenter = coordinates;
   const mapCenter = userPosition ? [userPosition.lat, userPosition.lng] : siteCenter;
@@ -155,83 +178,207 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const mostrarTrayecto = showRoute && ruta && (navegando || llegado);
   const enSeguimiento = mostrarTrayecto && navegando;
 
-  const tileUrl = isDark
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  const mapStyle = useMemo(() => {
+    if (token && !arcgisFallo) return estiloArcgis(isDark, token);
+    return isDark ? CARTO_OSCURO : CARTO_CLARO;
+  }, [token, isDark, arcgisFallo]);
+
+  // Asegura el token en TODA petición a ArcGIS (tiles, glyphs, sprites), no solo
+  // en la URL del estilo: si el servicio no las devuelve ya firmadas, el mapa se
+  // quedaría en blanco. Se evita el doble token si ya viene incluido.
+  const transformRequest = useCallback(
+    (url) => {
+      if (token && url.includes('.arcgis.com') && !/[?&]token=/.test(url)) {
+        return { url: `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` };
+      }
+      return { url };
+    },
+    [token]
+  );
+
+  // ─── Cámara ───────────────────────────────────────────────
+  // Al navegar y con seguimiento activo: centra en el usuario, ROTA el mapa
+  // hacia su rumbo (course-up) e inclina la cámara para el efecto 3D.
+  useEffect(() => {
+    if (!mapListo || !enSeguimiento || !siguiendo || !userPosition) return;
+    const map = mapRef.current;
+    if (!map) return;
+    map.easeTo({
+      center: [userPosition.lng, userPosition.lat],
+      bearing: userPosition.heading ?? map.getBearing(),
+      pitch: PITCH_NAVEGACION,
+      zoom: Math.max(map.getZoom(), ZOOM_NAVEGACION),
+      duration: 600,
+    });
+  }, [mapListo, enSeguimiento, siguiendo, userPosition]);
+
+  // Fuera de navegación: mapa al norte, sin inclinar, centrado en el objetivo.
+  // No forzamos el zoom para respetar el que ajuste el usuario.
+  useEffect(() => {
+    if (!mapListo || mostrarTrayecto || !mapCenter) return;
+    const map = mapRef.current;
+    if (!map) return;
+    map.easeTo({ center: [mapCenter[1], mapCenter[0]], bearing: 0, pitch: 0, duration: 400 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapListo, mostrarTrayecto, mapCenter?.[0], mapCenter?.[1]]);
+
+  // Al recibir un trayecto nuevo se encuadra completo una sola vez; a partir de
+  // ahí la cámara de seguimiento acompaña al usuario.
+  useEffect(() => {
+    if (!mapListo || !mostrarTrayecto || !ruta?.puntos || ruta.puntos.length < 2) return;
+    const map = mapRef.current;
+    if (!map) return;
+    let oeste = Infinity, sur = Infinity, este = -Infinity, norte = -Infinity;
+    for (const [lat, lng] of ruta.puntos) {
+      if (lng < oeste) oeste = lng;
+      if (lng > este) este = lng;
+      if (lat < sur) sur = lat;
+      if (lat > norte) norte = lat;
+    }
+    map.fitBounds([[oeste, sur], [este, norte]], { padding: 50, duration: 600 });
+  }, [mapListo, mostrarTrayecto, ruta]);
+
+  if (loading || !coordinates || !tokenListo) {
+    return (
+      <div
+        className="map-container"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--color-surface-alt)',
+          minHeight: '300px',
+        }}
+      >
+        <p style={{ color: 'var(--color-text-secondary)', fontSize: '13px' }}>Cargando ubicación en el mapa...</p>
+      </div>
+    );
+  }
+
+  // Rotación de la flecha: al navegar, el mapa ya gira, así que la flecha apunta
+  // arriba (0°); explorando, es la flecha la que gira hacia el rumbo.
+  const rotacionFlecha = enSeguimiento ? 0 : userPosition?.heading ?? 0;
+
+  const haloVisible = userPosition && userPosition.accuracy > 25;
 
   return (
     <div className="map-container">
-      <MapContainer
-        center={mapCenter}
-        zoom={enSeguimiento ? ZOOM_NAVEGACION : ZOOM_VISTA}
-        scrollWheelZoom={true}
+      <Map
+        ref={mapRef}
+        onLoad={() => setMapListo(true)}
+        initialViewState={{
+          longitude: mapCenter[1],
+          latitude: mapCenter[0],
+          zoom: enSeguimiento ? ZOOM_NAVEGACION : ZOOM_VISTA,
+        }}
+        mapStyle={mapStyle}
+        transformRequest={transformRequest}
+        onError={(e) => {
+          // Si ArcGIS rechaza el token (auth), se cambia al basemap de respaldo
+          // en vez de dejar el mapa en blanco. Los errores transitorios de tiles
+          // (sin código de auth) se ignoran para no cambiar todo el estilo.
+          const status = e?.error?.status;
+          if (token && !arcgisFallo && [401, 403, 498, 499].includes(status)) {
+            console.warn(`[mapa] Basemap de ArcGIS rechazado (${status}); usando respaldo CARTO.`);
+            setArcgisFallo(true);
+          }
+        }}
+        onDragStart={() => {
+          if (enSeguimiento) dejarDeSeguir();
+        }}
+        attributionControl={{ compact: true }}
+        style={{ width: '100%', height: '100%' }}
       >
-        {/* Fuera de navegación el mapa sigue centrado como antes. */}
-        <ChangeView center={mapCenter} zoom={ZOOM_VISTA} activo={!mostrarTrayecto} />
+        <NavigationControl position="top-right" visualizePitch={true} showZoom={true} showCompass={true} />
 
-        {/* Al recibir un trayecto nuevo se encuadra completo una vez... */}
-        {mostrarTrayecto && <EncuadrarRuta puntos={ruta.puntos} />}
-        {/* ...y a partir de ahí la cámara acompaña al usuario. */}
-        {enSeguimiento && (
-          <CamaraNavegacion
-            posicion={userPosition}
-            siguiendo={siguiendo}
-            onArrastrar={dejarDeSeguir}
-          />
+        {/* Halo de precisión del GPS: transparencia honesta sobre el error. */}
+        {haloVisible && (
+          <Source id="halo-precision" type="geojson" data={circuloGeoJSON(userPosition.lat, userPosition.lng, userPosition.accuracy)}>
+            <Layer id="halo-precision-fill" type="fill" paint={{ 'fill-color': colores.acento, 'fill-opacity': 0.08 }} />
+            <Layer id="halo-precision-line" type="line" paint={{ 'line-color': colores.acento, 'line-opacity': 0.35, 'line-width': 1 }} />
+          </Source>
         )}
 
-        <TileLayer
-          key={isDark ? 'dark-tiles' : 'light-tiles'}
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url={tileUrl}
-        />
+        {/* Trayecto: lo recorrido se atenúa, lo que falta va destacado. */}
+        {mostrarTrayecto && lineaGeoJSON(tramos?.recorrido) && (
+          <Source id="ruta-recorrida" type="geojson" data={lineaGeoJSON(tramos.recorrido)}>
+            <Layer
+              id="ruta-recorrida-linea"
+              type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': colores.tenue, 'line-width': 5, 'line-opacity': 0.45 }}
+            />
+          </Source>
+        )}
+        {mostrarTrayecto && lineaGeoJSON(tramos?.restante) && (
+          <Source id="ruta-restante" type="geojson" data={lineaGeoJSON(tramos.restante)}>
+            <Layer
+              id="ruta-restante-linea"
+              type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': colores.acento, 'line-width': 6, 'line-opacity': 0.9 }}
+            />
+          </Source>
+        )}
 
-        {/* Marcador del sitio */}
-        <Marker position={siteCenter} icon={siteIcon}>
-          <Popup>
-            <div>
-              <h4>{site.name}</h4>
-              <p>{site.address}</p>
-            </div>
-          </Popup>
+        {/* Marcador del sitio turístico. */}
+        <Marker
+          longitude={siteCenter[1]}
+          latitude={siteCenter[0]}
+          anchor="center"
+          onClick={(e) => {
+            e.originalEvent.stopPropagation();
+            setPopup('site');
+          }}
+        >
+          <div className="site-marker-pin" />
         </Marker>
 
-        {/* Marcador del usuario (si está disponible) */}
+        {/* Marcador del usuario: flecha de navegación. */}
         {userPosition && (
-          <>
-            {/* Halo de precisión del GPS: transparencia honesta sobre el margen de error. */}
-            {userPosition.accuracy > 25 && (
-              <Circle
-                center={[userPosition.lat, userPosition.lng]}
-                radius={userPosition.accuracy}
-                pathOptions={{ color: 'var(--color-accent)', weight: 1, opacity: 0.35, fillOpacity: 0.08 }}
-              />
-            )}
-            <Marker position={[userPosition.lat, userPosition.lng]} icon={gpsIcon}>
-              <Popup>
-                <div>
-                  <h4>Tu Ubicación</h4>
-                  <p>Ubicación actual en Itagüí</p>
-                </div>
-              </Popup>
-            </Marker>
-          </>
+          <Marker
+            longitude={userPosition.lng}
+            latitude={userPosition.lat}
+            anchor="center"
+            rotationAlignment="viewport"
+            onClick={(e) => {
+              e.originalEvent.stopPropagation();
+              setPopup('user');
+            }}
+          >
+            <FlechaUsuario rotacion={rotacionFlecha} />
+          </Marker>
         )}
 
-        {/* Trayecto: lo ya recorrido se atenúa, lo que falta va destacado. */}
-        {mostrarTrayecto && tramos.recorrido.length > 1 && (
-          <Polyline
-            positions={tramos.recorrido}
-            pathOptions={{ color: 'var(--color-text-secondary)', weight: 5, opacity: 0.45 }}
-          />
+        {popup === 'site' && (
+          <Popup
+            longitude={siteCenter[1]}
+            latitude={siteCenter[0]}
+            anchor="bottom"
+            offset={16}
+            closeButton
+            closeOnClick={false}
+            onClose={() => setPopup(null)}
+          >
+            <h4>{site.name}</h4>
+            <p>{site.address}</p>
+          </Popup>
         )}
-        {mostrarTrayecto && tramos.restante.length > 1 && (
-          <Polyline
-            positions={tramos.restante}
-            pathOptions={{ color: 'var(--color-accent)', weight: 6, opacity: 0.9 }}
-          />
+        {popup === 'user' && userPosition && (
+          <Popup
+            longitude={userPosition.lng}
+            latitude={userPosition.lat}
+            anchor="bottom"
+            offset={18}
+            closeButton
+            closeOnClick={false}
+            onClose={() => setPopup(null)}
+          >
+            <h4>Tu Ubicación</h4>
+            <p>Ubicación actual en Itagüí</p>
+          </Popup>
         )}
-      </MapContainer>
+      </Map>
 
       {/* Volver a centrar la cámara sobre el usuario tras mover el mapa. */}
       {enSeguimiento && !siguiendo && (
@@ -243,7 +390,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         </div>
       )}
 
-      {/* Botón flotante para fijar ruta si se tiene la ubicación del usuario */}
+      {/* Botón flotante para fijar ruta si se tiene la ubicación del usuario. */}
       {userPosition && onStartRoute && !mostrarTrayecto && (
         <div className="map-actions">
           <button className="map-actions__btn" onClick={onStartRoute}>

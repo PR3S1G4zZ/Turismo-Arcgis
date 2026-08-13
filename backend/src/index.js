@@ -24,6 +24,7 @@ import { uploadRouter } from './routes/upload.js';
 import { statsRouter } from './routes/stats.js';
 import { geocodeRouter } from './routes/geocode.js';
 import { routingRouter } from './routes/routing.js';
+import { mapaRouter } from './routes/mapa.js';
 import { googleCalendarRouter } from './routes/googleCalendar.js';
 
 const app = express();
@@ -31,17 +32,30 @@ const app = express();
 // Seguridad de cabeceras. Se permite el uso cruzado de recursos para que el
 // frontend (otro origen en desarrollo) pueda cargar las imágenes de /uploads.
 // img-src se amplía para las fotos de respaldo de Unsplash (SiteCard.jsx /
-// SiteDetailPage.jsx) y los tiles del mapa de CARTO (InteractiveMap.jsx,
-// subdominios a/b/c/d.basemaps.cartocdn.com). connect-src se amplía porque
+// SiteDetailPage.jsx) y los tiles del mapa. connect-src se amplía porque
 // InteractiveMap.jsx geocodifica direcciones sin lat/lng directo contra
 // Nominatim desde el propio navegador (no pasa por el backend).
+//
+// El mapa usa MapLibre GL con el basemap vectorial de ArcGIS (con respaldo a
+// CARTO). MapLibre pide tiles/glyphs/sprites por fetch (connect-src) y también
+// como imágenes (img-src), y corre su render en web workers (worker-src blob:).
+const HOSTS_MAPA = [
+  'https://*.basemaps.cartocdn.com',
+  'https://basemaps.cartocdn.com',
+  'https://basemapstyles-api.arcgis.com',
+  'https://ibasemaps-api.arcgis.com',
+  'https://static-map-tiles-api.arcgis.com',
+  'https://*.arcgis.com',
+];
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'img-src': ["'self'", 'data:', 'https://images.unsplash.com', 'https://*.basemaps.cartocdn.com'],
-      'connect-src': ["'self'", 'https://nominatim.openstreetmap.org'],
+      'img-src': ["'self'", 'data:', 'blob:', 'https://images.unsplash.com', ...HOSTS_MAPA],
+      'connect-src': ["'self'", 'https://nominatim.openstreetmap.org', ...HOSTS_MAPA],
+      'worker-src': ["'self'", 'blob:'],
+      'child-src': ["'self'", 'blob:'],
     },
   },
 }));
@@ -75,6 +89,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/geocode', geocodeRouter);
 app.use('/api/rutas', routingRouter);
+app.use('/api/mapa', mapaRouter);
 app.use('/api/google-calendar', googleCalendarRouter);
 
 // 404 para rutas de API desconocidas.
