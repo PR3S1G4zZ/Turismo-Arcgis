@@ -9,8 +9,9 @@
 import { useEffect, useState, useContext, useCallback, useRef, useMemo } from 'react';
 import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { RiNavigationLine, RiFocus3Line } from 'react-icons/ri';
+import { RiNavigationLine, RiFocus3Line, RiCompass3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
+import { useOrientacion } from '../../hooks/useOrientacion';
 import { mapaApi } from '../../utilidades/api';
 import './InteractiveMap.css';
 
@@ -76,6 +77,9 @@ const FlechaUsuario = ({ rotacion }) => (
 export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const navegacion = useContext(NavegacionContext);
   const { posicion: userPosition, tramos, ruta, navegando, llegado } = navegacion || {};
+
+  // Brújula del dispositivo: hace girar la flecha cuando el usuario está parado.
+  const orientacion = useOrientacion();
 
   const mapRef = useRef(null);
   const [mapListo, setMapListo] = useState(false);
@@ -255,9 +259,17 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     );
   }
 
-  // Rotación de la flecha: al navegar, el mapa ya gira, así que la flecha apunta
-  // arriba (0°); explorando, es la flecha la que gira hacia el rumbo.
-  const rotacionFlecha = enSeguimiento ? 0 : userPosition?.heading ?? 0;
+  // Rotación de la flecha:
+  //  - Navegando: el mapa ya gira (course-up), así que la flecha apunta arriba.
+  //  - Caminando (hay velocidad): manda el rumbo del GPS (dirección de marcha).
+  //  - Parado: manda la brújula (hacia dónde apuntas), como el cono de Google.
+  const moviendo = (userPosition?.speed ?? 0) > 0.7;
+  let rotacionFlecha = 0;
+  if (!enSeguimiento) {
+    if (moviendo && userPosition?.heading != null) rotacionFlecha = userPosition.heading;
+    else if (orientacion.heading != null) rotacionFlecha = orientacion.heading;
+    else if (userPosition?.heading != null) rotacionFlecha = userPosition.heading;
+  }
 
   const haloVisible = userPosition && userPosition.accuracy > 25;
 
@@ -265,7 +277,24 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     <div className="map-container">
       <Map
         ref={mapRef}
-        onLoad={() => setMapListo(true)}
+        cooperativeGestures={!showRoute}
+        locale={{
+          'CooperativeGesturesHandler.MobileText': 'Usa dos dedos para mover el mapa',
+          'CooperativeGesturesHandler.WindowsHelpText': 'Usa Ctrl + scroll para hacer zoom',
+          'CooperativeGesturesHandler.MacHelpText': 'Usa ⌘ + scroll para hacer zoom',
+        }}
+        onLoad={(e) => {
+          setMapListo(true);
+          // Gestos cooperativos en el mapa informativo embebido: con UN dedo la
+          // página hace scroll (no queda atrapado en el mapa) y con DOS dedos se
+          // mueve el mapa. En el de ruta a pantalla completa se deja el pan de un
+          // dedo. Se hace también imperativo por si la prop no se reenvía.
+          const map = e?.target;
+          if (map?.cooperativeGestures) {
+            if (showRoute) map.cooperativeGestures.disable();
+            else map.cooperativeGestures.enable();
+          }
+        }}
         initialViewState={{
           longitude: mapCenter[1],
           latitude: mapCenter[0],
@@ -379,6 +408,15 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           </Popup>
         )}
       </Map>
+
+      {/* Activar la brújula (iOS pide permiso con un toque). Solo se ofrece en el
+          mapa informativo, cuando la plataforma lo exige y aún no se concedió. */}
+      {!mostrarTrayecto && orientacion.necesitaPermiso && (
+        <button className="map-compass-btn" onClick={orientacion.activar} title="Activar brújula para orientar la flecha">
+          <RiCompass3Line />
+          <span>Brújula</span>
+        </button>
+      )}
 
       {/* Volver a centrar la cámara sobre el usuario tras mover el mapa. */}
       {enSeguimiento && !siguiendo && (
