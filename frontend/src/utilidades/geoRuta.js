@@ -36,6 +36,20 @@ export function rumbo(a, b) {
   return (grados + 360) % 360;
 }
 
+/**
+ * Mezcla circular de dos rumbos (0–360) para suavizar el ruido del sensor
+ * (GPS o brújula). Promedia en el plano seno/coseno para cruzar bien el corte
+ * 359°→0°. `factor` es el peso de la lectura nueva (0–1).
+ */
+export function suavizarRumbo(anterior, nuevo, factor = 0.35) {
+  if (anterior == null) return nuevo;
+  const ar = anterior * GRADOS_A_RAD;
+  const nr = nuevo * GRADOS_A_RAD;
+  const x = Math.cos(ar) * (1 - factor) + Math.cos(nr) * factor;
+  const y = Math.sin(ar) * (1 - factor) + Math.sin(nr) * factor;
+  return ((Math.atan2(y, x) / GRADOS_A_RAD) + 360) % 360;
+}
+
 /** Convierte [lat, lng] a metros en un plano local centrado en `ref`. */
 function aPlano(punto, ref) {
   const cosLat = Math.cos(ref[0] * GRADOS_A_RAD);

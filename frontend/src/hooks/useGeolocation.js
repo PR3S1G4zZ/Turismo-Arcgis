@@ -1,6 +1,6 @@
 // src/hooks/useGeolocation.js
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { distanciaM, rumbo } from '../utilidades/geoRuta';
+import { distanciaM, rumbo, suavizarRumbo } from '../utilidades/geoRuta';
 
 // Coordenadas del Parque Principal de Itagüí como último recurso (solo si el
 // usuario deniega el permiso o el GPS no está disponible).
@@ -15,19 +15,6 @@ const DESPLAZAMIENTO_MIN_M = 5;
 
 const geolocationSupported =
   typeof navigator !== 'undefined' && 'geolocation' in navigator;
-
-/**
- * Mezcla circular de dos rumbos para que la flecha no salte con el ruido del
- * GPS. Se promedia en el plano (seno/coseno) para cruzar bien el corte 359°→0°.
- */
-function suavizarRumbo(anterior, nuevo, factor = 0.35) {
-  if (anterior == null) return nuevo;
-  const ar = anterior * (Math.PI / 180);
-  const nr = nuevo * (Math.PI / 180);
-  const x = Math.cos(ar) * (1 - factor) + Math.cos(nr) * factor;
-  const y = Math.sin(ar) * (1 - factor) + Math.sin(nr) * factor;
-  return ((Math.atan2(y, x) * (180 / Math.PI)) + 360) % 360;
-}
 
 /**
  * Filtra el ruido de una lectura GPS puntual sin atrasar el seguimiento: el
