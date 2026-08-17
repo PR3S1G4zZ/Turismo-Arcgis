@@ -373,7 +373,9 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                 <RiErrorWarningLine />
                 <div className="maniobra-card__cuerpo">
                   <p className="maniobra-card__texto">{mensajeError}</p>
-                  <button className="maniobra-card__reintentar" onClick={recalcularAhora}>
+                  {/* Si el error es de GPS hay que repedir el permiso, no recalcular
+                      una ruta que de todas formas partiría de la ubicación simulada. */}
+                  <button className="maniobra-card__reintentar" onClick={gpsError ? reintentarGps : recalcularAhora}>
                     Reintentar
                   </button>
                 </div>

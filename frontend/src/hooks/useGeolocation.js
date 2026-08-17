@@ -30,6 +30,22 @@ function suavizarRumbo(anterior, nuevo, factor = 0.35) {
 }
 
 /**
+ * Filtra el ruido de una lectura GPS puntual sin atrasar el seguimiento: el
+ * peso de la lectura nueva depende de qué tan precisa dice el dispositivo que
+ * es (`accuracy`, en metros). Una fijación buena (poca `accuracy`) casi no se
+ * suaviza; una mala se acerca más a donde ya estábamos, en vez de mover de
+ * golpe la ruta/el tiempo restante por un salto de la triangulación.
+ */
+function suavizarPosicion(anterior, nueva, accuracy) {
+  if (!anterior) return nueva;
+  const peso = Math.max(0.25, Math.min(0.9, 1 - (accuracy || 0) / 40));
+  return {
+    lat: anterior.lat + (nueva.lat - anterior.lat) * peso,
+    lng: anterior.lng + (nueva.lng - anterior.lng) * peso,
+  };
+}
+
+/**
  * Ubicación REAL del usuario, en vivo. Usa watchPosition para seguir la posición
  * del dispositivo mientras se mueve. `isSimulated` es true solo cuando se cae al
  * centro de Itagüí porque no hay permiso o señal (para poder avisarlo en la UI).
@@ -51,6 +67,9 @@ export const useGeolocation = () => {
   // de marcha entre lecturas sin re-suscribir el watch en cada render.
   const ultimaCoordRef = useRef(null);
   const rumboRef = useRef(null);
+  // Última posición ya suavizada (la que se expone), separada de la cruda:
+  // el rumbo se deduce del desplazamiento REAL, no del filtrado.
+  const posicionSuavizadaRef = useRef(null);
 
   // Extraído para poder volver a pedirlo con un toque explícito del usuario
   // (`reintentar`): algunos navegadores móviles no muestran el diálogo nativo
@@ -62,12 +81,15 @@ export const useGeolocation = () => {
 
     setLoading(true);
     setError(null);
+    posicionSuavizadaRef.current = null;
 
     const handleSuccess = (pos) => {
       const { latitude, longitude, accuracy, heading: rumboGps, speed } = pos.coords;
 
       // Rumbo, en orden de preferencia: 1) el del GPS si hay movimiento real,
       // 2) el deducido entre la lectura anterior y esta, 3) el último conocido.
+      // Se calcula sobre las coordenadas CRUDAS: suavizarlas antes aplanaría
+      // el desplazamiento real y dañaría la dirección deducida.
       let rumboCrudo = null;
       if (Number.isFinite(rumboGps) && (speed == null || speed > VELOCIDAD_MIN_MS)) {
         rumboCrudo = rumboGps;
@@ -82,9 +104,15 @@ export const useGeolocation = () => {
       }
       ultimaCoordRef.current = { lat: latitude, lng: longitude };
 
+      // La posición que se expone sí se suaviza: es la que alimenta el avance
+      // sobre la ruta y el tiempo restante, y es ahí donde el ruido del GPS se
+      // veía como saltos repentinos.
+      const suavizada = suavizarPosicion(posicionSuavizadaRef.current, { lat: latitude, lng: longitude }, accuracy);
+      posicionSuavizadaRef.current = suavizada;
+
       setPosition({
-        lat: latitude,
-        lng: longitude,
+        lat: suavizada.lat,
+        lng: suavizada.lng,
         accuracy,
         // Dirección de marcha en grados (0–360) o null mientras no se conozca.
         heading: rumboRef.current,

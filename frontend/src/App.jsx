@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AppProvider } from './contexto/AppProvider';
 import { AppContext } from './contexto/AppContext';
@@ -36,6 +36,26 @@ function AnimatedRoutes() {
   );
 }
 
+// El mapa de pantalla completa no depende de la URL, así que sobrevive a
+// cualquier cambio de ruta (por ejemplo el botón "atrás" del navegador):
+// sin esto, quedaba tapando la página nueva y el usuario no podía volver a
+// ver la información del sitio que lo abrió. La isla de ruta (activeRouteSite)
+// se deja viva a propósito, para que el seguimiento persista entre vistas.
+function RouteMapCloser() {
+  const { pathname } = useLocation();
+  const { isRouteMapOpen, setIsRouteMapOpen } = useContext(AppContext);
+  const rutaPrevia = useRef(pathname);
+
+  useEffect(() => {
+    if (rutaPrevia.current !== pathname && isRouteMapOpen) {
+      setIsRouteMapOpen(false);
+    }
+    rutaPrevia.current = pathname;
+  }, [pathname, isRouteMapOpen, setIsRouteMapOpen]);
+
+  return null;
+}
+
 function AppContent() {
   const { 
     activeRouteSite, 
@@ -48,6 +68,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
+      <RouteMapCloser />
       <ScrollToTop />
       <Header />
       <main style={{ flex: 1 }}>
