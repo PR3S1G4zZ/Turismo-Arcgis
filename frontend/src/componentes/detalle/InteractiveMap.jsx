@@ -426,12 +426,21 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       )}
 
       {/* Activar la brújula (iOS pide permiso con un toque). Solo se ofrece en el
-          mapa informativo, cuando la plataforma lo exige y aún no se concedió. */}
+          mapa informativo, cuando la plataforma lo exige y aún no se concedió.
+          Si iOS ya lo denegó, ningún toque vuelve a abrir el diálogo nativo —
+          se avisa en vez de dejar un botón que parecería no hacer nada. */}
       {!mostrarTrayecto && orientacion.necesitaPermiso && (
-        <button className="map-compass-btn" onClick={orientacion.activar} title="Activar brújula para orientar la flecha">
-          <RiCompass3Line />
-          <span>Brújula</span>
-        </button>
+        orientacion.permiso === 'denegado' ? (
+          <p className="map-compass-btn map-compass-btn--denegado" title="Actívalo desde Ajustes del navegador para este sitio">
+            <RiCompass3Line />
+            <span>Brújula bloqueada: actívala en Ajustes del sitio</span>
+          </p>
+        ) : (
+          <button className="map-compass-btn" onClick={orientacion.activar} title="Activar brújula para orientar la flecha">
+            <RiCompass3Line />
+            <span>Brújula</span>
+          </button>
+        )
       )}
 
       {/* Volver a centrar la cámara sobre el usuario tras mover el mapa. */}

@@ -49,6 +49,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     fueraDeRuta,
     error: navError,
     gpsError,
+    gpsPermiso,
     reintentarGps,
     ruta,
     instruccion,
@@ -333,11 +334,19 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
               </p>
             ) : userLocationSimulated ? (
               <p className="route-gps-status route-gps-status--warn">
-                <RiErrorWarningLine /> No se pudo acceder a tu GPS; se usará el centro de Itagüí. Activa la ubicación para una ruta real.
-                {' '}
-                <button type="button" className="route-gps-status__retry" onClick={reintentarGps}>
-                  Reintentar
-                </button>
+                <RiErrorWarningLine />{' '}
+                {gpsError || 'No se pudo acceder a tu GPS; se usará el centro de Itagüí.'}
+                {/* Con el permiso bloqueado, ningún código de la página puede
+                    reabrir el diálogo nativo: mostrar "Reintentar" aquí solo
+                    repetiría el mismo error sin que el usuario entienda por qué. */}
+                {gpsPermiso !== 'denied' && (
+                  <>
+                    {' '}
+                    <button type="button" className="route-gps-status__retry" onClick={reintentarGps}>
+                      Reintentar
+                    </button>
+                  </>
+                )}
               </p>
             ) : (
               <p className="route-gps-status route-gps-status--ok">
@@ -374,10 +383,15 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                 <div className="maniobra-card__cuerpo">
                   <p className="maniobra-card__texto">{mensajeError}</p>
                   {/* Si el error es de GPS hay que repedir el permiso, no recalcular
-                      una ruta que de todas formas partiría de la ubicación simulada. */}
-                  <button className="maniobra-card__reintentar" onClick={gpsError ? reintentarGps : recalcularAhora}>
-                    Reintentar
-                  </button>
+                      una ruta que de todas formas partiría de la ubicación simulada.
+                      Y si el permiso ya quedó bloqueado, ni eso: ningún código de la
+                      página puede reabrir el diálogo, así que no se ofrece un botón
+                      que solo repetiría el mismo error. */}
+                  {!(gpsError && gpsPermiso === 'denied') && (
+                    <button className="maniobra-card__reintentar" onClick={gpsError ? reintentarGps : recalcularAhora}>
+                      Reintentar
+                    </button>
+                  )}
                 </div>
               </div>
             ) : instruccion ? (

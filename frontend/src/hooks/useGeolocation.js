@@ -16,6 +16,35 @@ const DESPLAZAMIENTO_MIN_M = 5;
 const geolocationSupported =
   typeof navigator !== 'undefined' && 'geolocation' in navigator;
 
+// Códigos de GeolocationPositionError (por nombre, para que el mapeo de
+// mensajes se lea sin recordar qué número es cada cosa).
+const ERROR_PERMISO_DENEGADO = 1;
+const ERROR_POSICION_NO_DISPONIBLE = 2;
+const ERROR_TIMEOUT = 3;
+
+/**
+ * Traduce el error crudo del navegador a un mensaje accionable en español.
+ * El código 1 (permiso denegado) es ambiguo por sí solo: puede ser la primera
+ * vez que se pregunta o un bloqueo permanente. `permiso` (del Permissions API,
+ * cuando está disponible) desempata entre "toca Reintentar" y "actívalo desde
+ * los ajustes del navegador", porque lo segundo ningún código en la página
+ * puede resolverlo por sí solo.
+ */
+function mensajeDeError(err, permiso) {
+  switch (err.code) {
+    case ERROR_PERMISO_DENEGADO:
+      return permiso === 'denied'
+        ? 'Bloqueaste el permiso de ubicación. Actívalo desde el ícono 🔒 junto a la dirección del sitio (o en Ajustes del sitio de tu navegador) y vuelve a intentar.'
+        : 'No se concedió el permiso de ubicación. Toca «Reintentar» para volver a pedirlo.';
+    case ERROR_POSICION_NO_DISPONIBLE:
+      return 'No se pudo determinar tu ubicación. Verifica que el GPS de tu dispositivo esté activado.';
+    case ERROR_TIMEOUT:
+      return 'Se agotó el tiempo esperando señal GPS. Verifica tu conexión y que el GPS esté encendido.';
+    default:
+      return 'No se pudo obtener tu ubicación.';
+  }
+}
+
 /**
  * Filtra el ruido de una lectura GPS puntual sin atrasar el seguimiento: el
  * peso de la lectura nueva depende de qué tan precisa dice el dispositivo que
@@ -49,6 +78,12 @@ export const useGeolocation = () => {
   );
   const [loading, setLoading] = useState(geolocationSupported);
   const [isSimulated, setIsSimulated] = useState(!geolocationSupported);
+  // Estado real del permiso ('prompt' | 'granted' | 'denied'), cuando el
+  // navegador expone el Permissions API para geolocalización. 'desconocido'
+  // en el resto de los casos (p. ej. Safari/iOS), donde solo queda inferir
+  // por el código de error de cada intento.
+  const [permiso, setPermiso] = useState('desconocido');
+  const permisoRef = useRef('desconocido');
   const watchIdRef = useRef(null);
   // Última coordenada cruda y último rumbo suavizado, para deducir la dirección
   // de marcha entre lecturas sin re-suscribir el watch en cada render.
@@ -57,6 +92,17 @@ export const useGeolocation = () => {
   // Última posición ya suavizada (la que se expone), separada de la cruda:
   // el rumbo se deduce del desplazamiento REAL, no del filtrado.
   const posicionSuavizadaRef = useRef(null);
+  // Último error crudo del GPS, para poder retraducir el mensaje si el estado
+  // de permiso se resuelve o cambia DESPUÉS de mostrado (la consulta al
+  // Permissions API es async y puede llegar más tarde que el primer error).
+  const ultimoErrorRef = useRef(null);
+
+  useEffect(() => {
+    permisoRef.current = permiso;
+    if (ultimoErrorRef.current) {
+      setError(mensajeDeError(ultimoErrorRef.current, permiso));
+    }
+  }, [permiso]);
 
   // Extraído para poder volver a pedirlo con un toque explícito del usuario
   // (`reintentar`): algunos navegadores móviles no muestran el diálogo nativo
@@ -69,6 +115,7 @@ export const useGeolocation = () => {
     setLoading(true);
     setError(null);
     posicionSuavizadaRef.current = null;
+    ultimoErrorRef.current = null;
 
     const handleSuccess = (pos) => {
       const { latitude, longitude, accuracy, heading: rumboGps, speed } = pos.coords;
@@ -105,6 +152,7 @@ export const useGeolocation = () => {
         heading: rumboRef.current,
         speed: Number.isFinite(speed) ? speed : null,
       });
+      ultimoErrorRef.current = null;
       setError(null);
       setIsSimulated(false);
       setLoading(false);
@@ -112,7 +160,8 @@ export const useGeolocation = () => {
 
     const handleError = (err) => {
       console.warn(`Error de geolocalización (${err.code}): ${err.message}.`);
-      setError(err.message);
+      ultimoErrorRef.current = err;
+      setError(mensajeDeError(err, permisoRef.current));
       // Último recurso: Itagüí Centro, marcado como simulado.
       setPosition({ lat: FALLBACK_LAT, lng: FALLBACK_LNG });
       setIsSimulated(true);
@@ -134,9 +183,47 @@ export const useGeolocation = () => {
     };
   }, [iniciarSeguimiento]);
 
+  // Permissions API: cuando está disponible, dice el estado REAL del permiso
+  // ('prompt' | 'granted' | 'denied'), no solo lo que se infiere de un error
+  // puntual. Con `onchange` nos enteramos si el usuario lo activa desde los
+  // ajustes del navegador mientras la página sigue abierta, y retomamos el
+  // GPS solos — sin que tenga que volver a tocar "Reintentar".
+  // No está disponible en todos los navegadores (Safari/iOS es el caso
+  // notable): ahí `permiso` se queda en 'desconocido' y solo queda inferir
+  // por el código de cada error, que ya cubre `mensajeDeError`.
+  useEffect(() => {
+    if (!geolocationSupported || typeof navigator.permissions?.query !== 'function') return;
+    let status = null;
+    let cancelado = false;
+
+    const manejarCambio = () => {
+      if (!status) return;
+      setPermiso(status.state);
+      if (status.state !== 'denied') iniciarSeguimiento();
+    };
+
+    navigator.permissions
+      .query({ name: 'geolocation' })
+      .then((res) => {
+        if (cancelado) return;
+        status = res;
+        setPermiso(res.state);
+        status.addEventListener('change', manejarCambio);
+      })
+      .catch(() => {
+        // El navegador no soporta consultar este permiso: se queda en
+        // 'desconocido' y la UI se apoya solo en el código de error.
+      });
+
+    return () => {
+      cancelado = true;
+      status?.removeEventListener('change', manejarCambio);
+    };
+  }, [iniciarSeguimiento]);
+
   // Nota: si el navegador ya bloqueó el permiso ("denied", no "prompt"),
   // reintentar() no puede volver a mostrar el diálogo — eso solo lo deshace
   // el usuario desde los ajustes de sitio de su navegador. Si el estado es
   // "prompt" (nunca se decidió, o se reseteó), sí vuelve a preguntar.
-  return { position, error, loading, isSimulated, reintentar: iniciarSeguimiento };
+  return { position, error, loading, isSimulated, permiso, reintentar: iniciarSeguimiento };
 };
