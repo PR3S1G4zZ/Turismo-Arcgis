@@ -15,7 +15,7 @@ const ITAGUI_CENTER = [6.1724, -75.6091];
 
 const pinIcon = L.divIcon({
   className: 'picker-map-icon',
-  html: '<div class="site-marker-pin"></div>',
+  html: '<div class="picker-marker-pin"></div>',
   iconSize: [24, 24],
   iconAnchor: [12, 12],
 });
@@ -53,7 +53,7 @@ function DraggableMarker({ position, onMove }) {
   );
 }
 
-export function LocationPicker({ address, lat, lng, onChange, showAlert }) {
+export function LocationPicker({ address, lat, lng, onChange, showAlert, showSearch = true }) {
   const [searching, setSearching] = useState(false);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
@@ -100,10 +100,12 @@ export function LocationPicker({ address, lat, lng, onChange, showAlert }) {
   return (
     <div className="location-picker">
       <div className="location-picker__toolbar">
-        <button type="button" className="btn-secondary location-picker__search-btn" onClick={handleSearch} disabled={searching}>
-          <RiSearchLine size={16} />
-          <span>{searching ? 'Buscando…' : 'Buscar dirección en el mapa'}</span>
-        </button>
+        {showSearch && (
+          <button type="button" className="btn-secondary location-picker__search-btn" onClick={handleSearch} disabled={searching}>
+            <RiSearchLine size={16} />
+            <span>{searching ? 'Buscando…' : 'Buscar dirección en el mapa'}</span>
+          </button>
+        )}
         <span className="location-picker__coords font-mono">
           {hasCoords ? `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}` : 'Sin ubicación fijada'}
         </span>

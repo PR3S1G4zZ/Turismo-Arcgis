@@ -66,10 +66,15 @@ function suavizarPosicion(anterior, nueva, accuracy) {
  * del dispositivo mientras se mueve. `isSimulated` es true solo cuando se cae al
  * centro de Itagüí porque no hay permiso o señal (para poder avisarlo en la UI).
  *
+ * @param {{precisionAlta?: boolean}} opciones `enableHighAccuracy` del GPS.
+ *   Cuesta batería real en el teléfono: solo hace falta mientras hay una ruta
+ *   en curso, no mientras el usuario simplemente navega el sitio (por eso es
+ *   un parámetro y no una constante fija).
+ *
  * Nota: la geolocalización del navegador exige contexto seguro (HTTPS) o
  * localhost. En el servidor de la Alcaldía debe servirse por HTTPS.
  */
-export const useGeolocation = () => {
+export const useGeolocation = ({ precisionAlta = true } = {}) => {
   const [position, setPosition] = useState(
     geolocationSupported ? null : { lat: FALLBACK_LAT, lng: FALLBACK_LNG }
   );
@@ -84,6 +89,7 @@ export const useGeolocation = () => {
   // por el código de error de cada intento.
   const [permiso, setPermiso] = useState('desconocido');
   const permisoRef = useRef('desconocido');
+  const precisionAltaRef = useRef(precisionAlta);
   const watchIdRef = useRef(null);
   // Última coordenada cruda y último rumbo suavizado, para deducir la dirección
   // de marcha entre lecturas sin re-suscribir el watch en cada render.
@@ -170,7 +176,7 @@ export const useGeolocation = () => {
 
     // Seguimiento en vivo de la ubicación real del dispositivo.
     watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
-      enableHighAccuracy: true,
+      enableHighAccuracy: precisionAltaRef.current,
       timeout: 10000,
       maximumAge: 0,
     });
@@ -182,6 +188,21 @@ export const useGeolocation = () => {
       if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
     };
   }, [iniciarSeguimiento]);
+
+  // `enableHighAccuracy` no se puede cambiar en un watch ya activo: hay que
+  // cerrarlo y volver a pedirlo. Se salta el primer render (el montaje ya lo
+  // arranca arriba con el valor inicial) para no reabrir el watch dos veces
+  // al cargar la página.
+  const primeraVezRef = useRef(true);
+  useEffect(() => {
+    precisionAltaRef.current = precisionAlta;
+    if (primeraVezRef.current) {
+      primeraVezRef.current = false;
+      return;
+    }
+    iniciarSeguimiento();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [precisionAlta]);
 
   // Permissions API: cuando está disponible, dice el estado REAL del permiso
   // ('prompt' | 'granted' | 'denied'), no solo lo que se infiere de un error

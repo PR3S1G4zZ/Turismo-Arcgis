@@ -39,9 +39,20 @@ function puntoDeSitio(sitio) {
 }
 
 export function useNavegacion() {
-  const { position, isSimulated, loading: gpsCargando, error: gpsError, permiso: gpsPermiso, reintentar: reintentarGps } = useGeolocation();
-
   const [estado, setEstado] = useState('inactivo'); // inactivo | calculando | navegando | llegado | error
+
+  // Alta precisión (más batería) solo mientras hay una ruta en curso; el resto
+  // del tiempo (p. ej. "Zona Actual" en Home) basta con la ubicación gruesa.
+  const precisionAlta = estado !== 'inactivo';
+  const {
+    position,
+    isSimulated,
+    loading: gpsCargando,
+    error: gpsError,
+    permiso: gpsPermiso,
+    reintentar: reintentarGps,
+  } = useGeolocation({ precisionAlta });
+
   const [ruta, setRuta] = useState(null);
   const [avance, setAvance] = useState(null);
   const [instruccion, setInstruccion] = useState(null);
@@ -51,6 +62,11 @@ export function useNavegacion() {
   const [error, setError] = useState('');
   const [recalculando, setRecalculando] = useState(false);
   const [vozActiva, setVozActiva] = useState(true);
+  // Punto de partida elegido a mano cuando no hay GPS real (permiso denegado
+  // o sin señal): reemplaza la posición simulada del centro de Itagüí solo
+  // para CALCULAR la ruta inicial. El seguimiento en vivo sigue dependiendo
+  // del GPS real, porque un punto fijo no puede simular movimiento.
+  const [origenManual, setOrigenManual] = useState(null);
 
   // Refs: el bucle del GPS no debe re-suscribirse en cada render.
   const rutaRef = useRef(null);
@@ -69,6 +85,10 @@ export function useNavegacion() {
     if (!vozActivaRef.current || !texto) return;
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
     try {
+      // Corta cualquier anuncio anterior sin terminar: sin esto, si dos
+      // maniobras llegan seguidas (cruces cercanos) se encolan y la segunda
+      // suena tarde, cuando ya no aplica.
+      window.speechSynthesis.cancel();
       const mensaje = new SpeechSynthesisUtterance(texto);
       mensaje.lang = 'es-CO';
       mensaje.rate = 1;
@@ -129,7 +149,11 @@ export function useNavegacion() {
       setEstado('error');
       return;
     }
-    if (!position) {
+    // El origen elegido a mano (cuando no hay GPS real) solo sirve para
+    // calcular ESTA ruta inicial; el seguimiento en vivo de más abajo sigue
+    // dependiendo de `position` sin importar esto.
+    const origen = origenManual || position;
+    if (!origen) {
       setError('Aún no tenemos tu ubicación. Activa el GPS y concede el permiso.');
       setEstado('error');
       return;
@@ -139,8 +163,8 @@ export function useNavegacion() {
     const puntoDestino = { ...base, nombre: sitio.name || 'Destino' };
     setDestino(puntoDestino);
     setModo(modoViaje);
-    calcular(position, puntoDestino, modoViaje);
-  }, [position, calcular]);
+    calcular(origen, puntoDestino, modoViaje);
+  }, [position, origenManual, calcular]);
 
   const detener = useCallback(() => {
     callar();
@@ -156,6 +180,7 @@ export function useNavegacion() {
     setTramos({ recorrido: [], restante: [] });
     setDestino(null);
     setError('');
+    setOrigenManual(null);
   }, [callar]);
 
   const recalcularAhora = useCallback(() => {
@@ -249,6 +274,11 @@ export function useNavegacion() {
     gpsError,
     gpsPermiso,
     reintentarGps,
+    // Origen a mano (cuando no hay GPS real) y el que realmente cuenta para
+    // calcular la ruta inicial y las vistas previas de distancia/tiempo.
+    origenManual,
+    setOrigenManual,
+    origenEfectivo: origenManual || position,
 
     // Estado de la navegación
     estado,
