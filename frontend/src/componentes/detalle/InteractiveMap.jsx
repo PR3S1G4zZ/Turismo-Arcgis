@@ -106,6 +106,11 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     return {
       acento: cs.getPropertyValue('--color-accent').trim() || '#E8B400',
       tenue: cs.getPropertyValue('--color-text-secondary').trim() || '#8A8F98',
+      // Trazado de la ruta: un azul de navegación dedicado, distinto del
+      // dorado de marca (que en el mapa ya es "botón/CTA") y del gris de
+      // texto (que ya significa "texto secundario" en toda la interfaz).
+      rutaActiva: cs.getPropertyValue('--color-route-active').trim() || '#2F6FED',
+      rutaHecha: cs.getPropertyValue('--color-route-done').trim() || '#A7B0C2',
     };
     // `isDark` no se usa en el cuerpo pero es la señal de que las variables CSS
     // cambiaron: sin él, los colores quedarían congelados al cambiar de tema.
@@ -343,7 +348,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
               id="ruta-recorrida-linea"
               type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': colores.tenue, 'line-width': 5, 'line-opacity': 0.45 }}
+              paint={{ 'line-color': colores.rutaHecha, 'line-width': 5, 'line-opacity': 0.6 }}
             />
           </Source>
         )}
@@ -353,7 +358,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
               id="ruta-restante-linea"
               type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': colores.acento, 'line-width': 6, 'line-opacity': 0.9 }}
+              paint={{ 'line-color': colores.rutaActiva, 'line-width': 6, 'line-opacity': 0.9 }}
             />
           </Source>
         )}

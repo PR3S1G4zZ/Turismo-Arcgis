@@ -12,6 +12,15 @@
   --color-accent-dark:    #C49A00;   /* Dorado oscuro — texto sobre fondos claros */
   --color-accent-faint:   rgba(232, 180, 0, 0.15); /* Glow del dorado en dark */
 
+  /* --- TRAZADO DE RUTA (mapa) --- */
+  /* Un azul de navegación dedicado en vez de reusar el dorado de marca: en el
+     mapa el dorado ya significa "botón/CTA" en todos lados, así que la ruta
+     se perdía entre esos otros acentos. Tramo restante bien saturado (es el
+     protagonista); tramo recorrido en un gris azulado apagado, distinto del
+     gris de texto que ya se usa para otra cosa en el resto de la interfaz. */
+  --color-route-active:   #2F6FED;
+  --color-route-done:     #A7B0C2;
+
   /* --- SUPERFICIES (modo claro) --- */
   --color-bg:             #faf8ff;   /* Fondo de página — blanco cálido lavanda de Stitch */
   --color-surface:        #ffffff;   /* Cards, paneles */
@@ -84,4 +93,9 @@ html.dark {
   --color-primary-faint:  rgba(0, 80, 179, 0.18);
   --modal-progress-bg:    rgba(255, 255, 255, 0.15);
   --shadow-card:  none;
+
+  /* Trazado de ruta: más claro y saturado que en modo día para que resalte
+     sobre el basemap oscuro de ArcGIS/CARTO en vez de perderse en él. */
+  --color-route-active:   #5B9CFF;
+  --color-route-done:     #4B5570;
 }
