@@ -281,7 +281,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         ref={mapRef}
         cooperativeGestures={!showRoute}
         locale={{
-          'CooperativeGesturesHandler.MobileText': 'Usa dos dedos para mover el mapa',
+          'CooperativeGesturesHandler.MobileHelpText': 'Usa dos dedos para mover el mapa',
           'CooperativeGesturesHandler.WindowsHelpText': 'Usa Ctrl + scroll para hacer zoom',
           'CooperativeGesturesHandler.MacHelpText': 'Usa ⌘ + scroll para hacer zoom',
         }}
