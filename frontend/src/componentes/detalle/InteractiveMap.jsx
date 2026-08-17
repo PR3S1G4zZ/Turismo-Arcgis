@@ -64,12 +64,39 @@ function lineaGeoJSON(puntos) {
   };
 }
 
-/** Flecha de navegación del usuario (SVG). Se rota por CSS según el modo. */
+/**
+ * Marcador de navegación del usuario, estilo Google Maps/Waze: un núcleo
+ * circular fijo sobre la coordenada exacta (con anillo de contraste para
+ * distinguirse de cualquier tile del basemap) y un cono de dirección que se
+ * abre hacia donde apunta, con degradado para que lea como un haz de luz y
+ * no como una flecha sólida. Todo el color sale de `currentColor` (fijado en
+ * `.user-arrow` por CSS) para que un solo lugar controle el tema claro/oscuro.
+ */
 const FlechaUsuario = ({ rotacion }) => (
   <div className="user-arrow" style={{ transform: `rotate(${rotacion}deg)` }}>
-    <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
-      <circle className="user-arrow__halo" cx="18" cy="18" r="16" />
-      <path className="user-arrow__shape" d="M18 5 L28 29 L18 23 L8 29 Z" />
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+      <defs>
+        <radialGradient id="user-arrow-halo-grad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.32" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="user-arrow-cono-grad" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.05" />
+        </linearGradient>
+      </defs>
+      {/* Halo ambiental suave, como el "pulso" de precisión de Google Maps. */}
+      <circle cx="20" cy="20" r="19" fill="url(#user-arrow-halo-grad)" />
+      {/* Cono de dirección: se abre desde el núcleo hacia donde se apunta. */}
+      <path
+        className="user-arrow__cono"
+        d="M20 3 C 23.3 3 28.5 17.6 28.5 21.5 L 11.5 21.5 C 11.5 17.6 16.7 3 20 3 Z"
+        fill="url(#user-arrow-cono-grad)"
+      />
+      {/* Anillo de contraste: separa el núcleo de cualquier color del mapa. */}
+      <circle className="user-arrow__anillo" cx="20" cy="20" r="8.5" />
+      {/* Núcleo: la posición exacta del usuario. */}
+      <circle className="user-arrow__nucleo" cx="20" cy="20" r="6.3" />
     </svg>
   </div>
 );

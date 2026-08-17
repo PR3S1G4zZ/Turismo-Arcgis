@@ -20,34 +20,36 @@
   font-family: var(--font-body);
 }
 
-/* Flecha de navegación del usuario (estilo Waze/Google) */
+/* Marcador de navegación del usuario (estilo Waze/Google): núcleo + cono de
+   dirección + anillo de contraste. Todo el color sale de `color` (currentColor
+   dentro del SVG) para fijar el tema claro/oscuro en un solo lugar. */
 .user-arrow {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  color: var(--color-primary);
   /* La rotación la fija el componente por style inline (transform: rotate). */
-  transition: transform 0.25s ease-out;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+  transition: transform 0.25s ease-out, color 0.2s ease;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
 }
 
-.user-arrow__halo {
-  fill: var(--color-primary);
-  opacity: 0.18;
+html.dark .user-arrow {
+  color: var(--color-accent);
 }
 
-.user-arrow__shape {
-  fill: var(--color-primary);
-  stroke: #ffffff;
+.user-arrow__anillo {
+  fill: var(--color-surface, #fff);
+  stroke: rgba(0, 0, 0, 0.18);
+  stroke-width: 1;
+}
+
+html.dark .user-arrow__anillo {
+  stroke: rgba(0, 0, 0, 0.45);
+}
+
+.user-arrow__nucleo {
+  fill: currentColor;
+  stroke: var(--color-surface, #fff);
   stroke-width: 1.5;
-  stroke-linejoin: round;
-}
-
-html.dark .user-arrow__halo {
-  fill: var(--color-accent);
-}
-
-html.dark .user-arrow__shape {
-  fill: var(--color-accent);
-  stroke: var(--color-surface-alt);
 }
 
 /* Site Marker Personalizado */
