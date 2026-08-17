@@ -745,10 +745,13 @@ html.dark .timeline-finish-route-btn:hover {
     max-width: 440px !important;
   }
 
-  /* Acoplamiento al fondo (Bottom Sheet) en móvil */
+  /* Acoplamiento al fondo (Bottom Sheet) en móvil. El segundo `bottom` es
+     progressive enhancement: sin soporte de env() se queda con el primero;
+     con notch (iPhone) evita que la isla quede bajo el home-indicator. */
   .route-modal--dock-bottom:not(.route-modal--minimized) {
     top: auto !important;
     bottom: 24px !important;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
     left: 50% !important;
     transform: translate(-50%, 0) !important;
     animation: modalSlideUpCenterMobile 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -760,6 +763,19 @@ html.dark .timeline-finish-route-btn:hover {
     width: auto !important;
     left: 50% !important;
     transform: translate(-50%, 0) !important;
+  }
+
+  /* En móvil la isla siempre se ancla al fondo (arriba en el JS solo aplica
+     en escritorio) y crece hacia arriba sin tope: en un teléfono bajo
+     (iPhone SE, apaisado) el paso de seguimiento —el más largo, con maniobra,
+     resumen y timeline— podía salirse por encima de la pantalla sin forma de
+     desplazarse hasta ahí, porque `.route-modal` recorta con overflow:hidden.
+     Se limita la altura del CONTENIDO (no de la cápsula que anima) y se deja
+     scroll interno cuando no entra completo. */
+  .route-modal-content {
+    max-height: calc(100vh - 96px - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .route-modal--tracking {

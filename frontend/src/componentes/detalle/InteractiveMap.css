@@ -3,9 +3,14 @@
    Turismo Itagüí — Contenedor del Mapa e Iconos Pulsantes
    ============================================================ */
 
+/* La altura la fija siempre el contenedor de cada vista (.detail-map-wrapper
+   en la página del sitio, 100vh en el mapa de ruta a pantalla completa): con
+   una altura fija en 480px acá, un padre más bajo en móvil (.detail-map-wrapper
+   baja a 300px con overflow:hidden) recortaba el mapa y dejaba el botón
+   flotante "Fijar Ruta de Destino" fuera del área visible, imposible de tocar. */
 .map-container {
   width: 100%;
-  height: 480px;
+  height: 100%;
   border-radius: var(--radius-md);
   border: 1.5px solid var(--color-border-strong);
   overflow: hidden;
@@ -57,29 +62,45 @@ html.dark .user-arrow__anillo {
   position: relative;
 }
 
+/* El punto visual se queda en 18px, pero el área de toque real (::before)
+   crece a 44px — el mínimo táctil accesible recomendado — sin agrandar el
+   pin ni desplazar su centro (sigue siendo el punto exacto del sitio). */
 .site-marker-pin {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.site-marker-pin::before {
+  content: '';
   width: 18px;
   height: 18px;
   background-color: var(--color-accent); /* Oro */
   border: 3px solid var(--color-primary); /* Azul */
   border-radius: 50%;
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
   transition: transform 0.2s ease, background-color 0.2s ease;
 }
 
-.site-marker-pin:hover {
+.site-marker-pin:hover::before {
   transform: scale(1.2);
 }
 
-html.dark .site-marker-pin {
+html.dark .site-marker-pin::before {
   border-color: var(--color-surface-alt);
 }
 
-/* Botón Iniciar Ruta flotante */
+/* Botón Iniciar Ruta flotante. El segundo `bottom` es un progressive
+   enhancement: en navegadores sin soporte de env() se queda con el primero;
+   en el mapa a pantalla completa de un iPhone con notch evita que el botón
+   quede bajo el home-indicator. */
 .map-actions {
   position: absolute;
   bottom: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
