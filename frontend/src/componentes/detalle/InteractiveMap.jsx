@@ -65,38 +65,59 @@ function lineaGeoJSON(puntos) {
 }
 
 /**
- * Marcador de navegación del usuario, estilo Google Maps/Waze: un núcleo
- * circular fijo sobre la coordenada exacta (con anillo de contraste para
- * distinguirse de cualquier tile del basemap) y un cono de dirección que se
- * abre hacia donde apunta, con degradado para que lea como un haz de luz y
- * no como una flecha sólida. Todo el color sale de `currentColor` (fijado en
- * `.user-arrow` por CSS) para que un solo lugar controle el tema claro/oscuro.
+ * Interpola suavemente la posición DIBUJADA del usuario entre lecturas reales
+ * del GPS (llegan más o menos 1 por segundo): sin esto, el punto salta de
+ * golpe en vez de deslizarse. La posición REAL (la que usan el avance sobre
+ * la ruta, el ETA y la cámara) no se toca — esto solo suaviza lo visual.
  */
+function usePosicionAnimada(objetivo, duracionMs = 600) {
+  const [mostrada, setMostrada] = useState(objetivo);
+  const mostradaRef = useRef(objetivo);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    // Nada que animar: sin destino no hay hacia dónde deslizarse. El valor
+    // de retorno del hook ya cae a `null` más abajo sin tocar este estado.
+    if (!objetivo) return;
+
+    const origen = mostradaRef.current;
+    if (!origen) {
+      mostradaRef.current = objetivo;
+      setMostrada(objetivo);
+      return;
+    }
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    let inicio = null;
+    const paso = (t) => {
+      if (inicio == null) inicio = t;
+      const avance = Math.min(1, (t - inicio) / duracionMs);
+      const suavizado = 1 - (1 - avance) ** 3; // ease-out cúbico
+      const punto = {
+        lat: origen.lat + (objetivo.lat - origen.lat) * suavizado,
+        lng: origen.lng + (objetivo.lng - origen.lng) * suavizado,
+      };
+      mostradaRef.current = punto;
+      setMostrada(punto);
+      if (avance < 1) rafRef.current = requestAnimationFrame(paso);
+    };
+    rafRef.current = requestAnimationFrame(paso);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objetivo?.lat, objetivo?.lng, duracionMs]);
+
+  return objetivo ? mostrada : null;
+}
+
+/** Flecha de navegación del usuario (SVG). Se rota por CSS según el modo. */
 const FlechaUsuario = ({ rotacion }) => (
   <div className="user-arrow" style={{ transform: `rotate(${rotacion}deg)` }}>
-    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
-      <defs>
-        <radialGradient id="user-arrow-halo-grad" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.32" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </radialGradient>
-        <linearGradient id="user-arrow-cono-grad" x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0.05" />
-        </linearGradient>
-      </defs>
-      {/* Halo ambiental suave, como el "pulso" de precisión de Google Maps. */}
-      <circle cx="20" cy="20" r="19" fill="url(#user-arrow-halo-grad)" />
-      {/* Cono de dirección: se abre desde el núcleo hacia donde se apunta. */}
-      <path
-        className="user-arrow__cono"
-        d="M20 3 C 23.3 3 28.5 17.6 28.5 21.5 L 11.5 21.5 C 11.5 17.6 16.7 3 20 3 Z"
-        fill="url(#user-arrow-cono-grad)"
-      />
-      {/* Anillo de contraste: separa el núcleo de cualquier color del mapa. */}
-      <circle className="user-arrow__anillo" cx="20" cy="20" r="8.5" />
-      {/* Núcleo: la posición exacta del usuario. */}
-      <circle className="user-arrow__nucleo" cx="20" cy="20" r="6.3" />
+    <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+      <circle className="user-arrow__halo" cx="18" cy="18" r="16" />
+      <path className="user-arrow__shape" d="M18 5 L28 29 L18 23 L8 29 Z" />
     </svg>
   </div>
 );
@@ -107,6 +128,13 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
 
   // Brújula del dispositivo: hace girar la flecha cuando el usuario está parado.
   const orientacion = useOrientacion();
+
+  // Posición dibujada del usuario, deslizándose entre lecturas reales del GPS
+  // en vez de saltar. Se usa solo para el marcador y su halo — el avance de
+  // ruta y la cámara siguen leyendo `userPosition` directo, sin retraso.
+  const posicionAnimada = usePosicionAnimada(
+    userPosition ? { lat: userPosition.lat, lng: userPosition.lng } : null
+  );
 
   const mapRef = useRef(null);
   const [mapListo, setMapListo] = useState(false);
@@ -305,7 +333,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     else if (userPosition?.heading != null) rotacionFlecha = userPosition.heading;
   }
 
-  const haloVisible = userPosition && userPosition.accuracy > 25;
+  // `posicionAnimada` puede tardar un render en ponerse al día justo cuando
+  // `userPosition` pasa de null a un valor real (la transición la resuelve un
+  // efecto, no el render); se exige también acá para no leer .lat de null.
+  const haloVisible = userPosition && posicionAnimada && userPosition.accuracy > 25;
 
   return (
     <div className="map-container">
@@ -362,7 +393,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
 
         {/* Halo de precisión del GPS: transparencia honesta sobre el error. */}
         {haloVisible && (
-          <Source id="halo-precision" type="geojson" data={circuloGeoJSON(userPosition.lat, userPosition.lng, userPosition.accuracy)}>
+          <Source id="halo-precision" type="geojson" data={circuloGeoJSON(posicionAnimada.lat, posicionAnimada.lng, userPosition.accuracy)}>
             <Layer id="halo-precision-fill" type="fill" paint={{ 'fill-color': colores.acento, 'fill-opacity': 0.08 }} />
             <Layer id="halo-precision-line" type="line" paint={{ 'line-color': colores.acento, 'line-opacity': 0.35, 'line-width': 1 }} />
           </Source>
@@ -404,10 +435,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         </Marker>
 
         {/* Marcador del usuario: flecha de navegación. */}
-        {userPosition && (
+        {userPosition && posicionAnimada && (
           <Marker
-            longitude={userPosition.lng}
-            latitude={userPosition.lat}
+            longitude={posicionAnimada.lng}
+            latitude={posicionAnimada.lat}
             anchor="center"
             rotationAlignment="viewport"
             onClick={(e) => {
@@ -433,10 +464,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
             <p>{site.address}</p>
           </Popup>
         )}
-        {popup === 'user' && userPosition && (
+        {popup === 'user' && userPosition && posicionAnimada && (
           <Popup
-            longitude={userPosition.lng}
-            latitude={userPosition.lat}
+            longitude={posicionAnimada.lng}
+            latitude={posicionAnimada.lat}
             anchor="bottom"
             offset={18}
             closeButton

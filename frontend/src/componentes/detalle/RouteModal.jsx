@@ -16,11 +16,13 @@ import {
   RiLoopLeftLine,
   RiVolumeUpLine,
   RiVolumeMuteLine,
-  RiRefreshLine
+  RiRefreshLine,
+  RiMapPin2Line
 } from 'react-icons/ri';
 import { AppContext } from '../../contexto/AppContext';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 import { formatearDistancia, formatearDuracion, distanciaM } from '../../utilidades/geoRuta';
+import { OrigenManualModal } from './OrigenManualModal';
 import './RouteModal.css';
 
 /**
@@ -51,6 +53,9 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     gpsError,
     gpsPermiso,
     reintentarGps,
+    origenManual,
+    setOrigenManual,
+    origenEfectivo,
     ruta,
     instruccion,
     distanciaRestanteM,
@@ -66,6 +71,8 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   const [step, setStep] = useState('transport'); // 'transport' | 'confirm' | 'tracking'
   const [mode, setMode] = useState('walk'); // 'walk' | 'car'
   const [isMinimized, setIsMinimized] = useState(false);
+  // Selector de origen a mano, para cuando no hay GPS real.
+  const [mostrarSelectorOrigen, setMostrarSelectorOrigen] = useState(false);
 
   // Estados de acoplamiento de la Isla Dinámica (Desktop Drag & Snap)
   const [dockPosition, setDockPosition] = useState('top'); // 'top' | 'bottom' | 'left' | 'right'
@@ -222,8 +229,10 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
 
   // Estimación previa al cálculo: distancia en línea recta. Se sustituye por la
   // distancia real por calles en cuanto el servicio devuelve la ruta.
-  const rectaM = userPosition && site?.lat && site?.lng
-    ? distanciaM([userPosition.lat, userPosition.lng], [Number(site.lat), Number(site.lng)])
+  // `origenEfectivo` es el punto elegido a mano si no hay GPS real, o la
+  // posición del GPS en caso contrario.
+  const rectaM = origenEfectivo && site?.lat && site?.lng
+    ? distanciaM([origenEfectivo.lat, origenEfectivo.lng], [Number(site.lat), Number(site.lng)])
     : null;
   const previaDistancia = ruta ? ruta.distanciaM : rectaM;
   const previaTiempo = ruta
@@ -246,6 +255,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   } : {};
 
   return (
+    <>
     <div className={`modal-overlay ${isPill ? 'modal-overlay--minimized' : ''}`} onClick={!isPill ? handleClose : undefined}>
       <div
         className={`route-modal ${isPill ? 'route-modal--minimized' : ''} ${step === 'tracking' && !isPill ? 'route-modal--tracking' : ''} ${isDragging ? 'route-modal--dragging' : ''} ${isClosing ? 'route-modal--closing' : ''} route-modal--dock-${currentDock}`}
@@ -333,21 +343,40 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                 <RiUserLocationLine /> Obteniendo tu ubicación GPS…
               </p>
             ) : userLocationSimulated ? (
-              <p className="route-gps-status route-gps-status--warn">
-                <RiErrorWarningLine />{' '}
-                {gpsError || 'No se pudo acceder a tu GPS; se usará el centro de Itagüí.'}
-                {/* Con el permiso bloqueado, ningún código de la página puede
-                    reabrir el diálogo nativo: mostrar "Reintentar" aquí solo
-                    repetiría el mismo error sin que el usuario entienda por qué. */}
-                {gpsPermiso !== 'denied' && (
-                  <>
-                    {' '}
-                    <button type="button" className="route-gps-status__retry" onClick={reintentarGps}>
-                      Reintentar
+              <>
+                <p className="route-gps-status route-gps-status--warn">
+                  <RiErrorWarningLine />{' '}
+                  {gpsError || 'No se pudo acceder a tu GPS; se usará el centro de Itagüí.'}
+                  {/* Con el permiso bloqueado, ningún código de la página puede
+                      reabrir el diálogo nativo: mostrar "Reintentar" aquí solo
+                      repetiría el mismo error sin que el usuario entienda por qué. */}
+                  {gpsPermiso !== 'denied' && (
+                    <>
+                      {' '}
+                      <button type="button" className="route-gps-status__retry" onClick={reintentarGps}>
+                        Reintentar
+                      </button>
+                    </>
+                  )}
+                </p>
+                {/* Sin GPS real, se puede al menos calcular la ruta desde un
+                    punto elegido a mano en vez del centro de Itagüí por defecto. */}
+                {origenManual ? (
+                  <p className="route-gps-status route-gps-status--ok">
+                    <RiMapPin2Line /> Partiendo desde el punto que elegiste en el mapa.{' '}
+                    <button type="button" className="route-gps-status__retry" onClick={() => setMostrarSelectorOrigen(true)}>
+                      Cambiar
                     </button>
-                  </>
+                  </p>
+                ) : (
+                  <p className="route-gps-status route-gps-status--wait">
+                    <RiMapPin2Line /> ¿Prefieres marcar tu punto de partida?{' '}
+                    <button type="button" className="route-gps-status__retry" onClick={() => setMostrarSelectorOrigen(true)}>
+                      Elegir en el mapa
+                    </button>
+                  </p>
                 )}
-              </p>
+              </>
             ) : (
               <p className="route-gps-status route-gps-status--ok">
                 <RiUserLocationLine /> Ubicación real detectada. La ruta seguirá tu movimiento en tiempo real.
@@ -358,7 +387,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
               <button className="confirm-btn-cancel" onClick={handleCancel}>
                 Atrás
               </button>
-              <button className="confirm-btn-start" onClick={handleStart} disabled={!userPosition}>
+              <button className="confirm-btn-start" onClick={handleStart} disabled={!origenEfectivo}>
                 <RiNavigationLine />
                 <span>Iniciar Ruta</span>
               </button>
@@ -525,5 +554,19 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
         </div>
       </div>
     </div>
+    <OrigenManualModal
+      // La key cambia en cada apertura/cierre: fuerza un montaje nuevo (en
+      // vez de un efecto interno) para que un intento cancelado no deje su
+      // punto pegado la próxima vez que se abra.
+      key={mostrarSelectorOrigen}
+      isOpen={mostrarSelectorOrigen}
+      initial={origenManual}
+      onConfirm={(punto) => {
+        setOrigenManual(punto);
+        setMostrarSelectorOrigen(false);
+      }}
+      onCancel={() => setMostrarSelectorOrigen(false)}
+    />
+    </>
   );
 };

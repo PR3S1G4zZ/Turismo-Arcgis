@@ -53,9 +53,11 @@
   margin: 0;
 }
 
-/* Reutiliza el pin del sitio (definido en InteractiveMap.css) por si este CSS
-   carga aislado; se define aquí de forma defensiva. */
-.picker-map-icon .site-marker-pin {
+/* Pin del selector. Antes reusaba la clase `.site-marker-pin` del mapa
+   público (InteractiveMap.css); se le dio su propia clase para no heredar
+   cambios pensados para ese otro marcador (p. ej. su área de toque ampliada
+   con ::before), que aquí no aplican. */
+.picker-marker-pin {
   width: 20px;
   height: 20px;
   background: var(--color-accent);

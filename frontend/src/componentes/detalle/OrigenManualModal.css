@@ -1,0 +1,11 @@
+/* src/componentes/detalle/OrigenManualModal.css
+   Ajustes puntuales sobre .custom-modal-container (CustomModal.css): el mapa
+   del LocationPicker necesita más ancho que el diálogo de confirmación
+   genérico. */
+.origen-manual-modal {
+  max-width: 480px;
+}
+
+.origen-manual-modal .custom-modal-body p {
+  margin-bottom: 14px;
+}
