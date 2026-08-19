@@ -23,6 +23,7 @@ import { AppContext } from '../../contexto/AppContext';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 import { formatearDistancia, formatearDuracion, distanciaM } from '../../utilidades/geoRuta';
 import { OrigenManualModal } from './OrigenManualModal';
+import { mensajeEstadoGps } from './estadoGps';
 import './RouteModal.css';
 
 /**
@@ -253,9 +254,11 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   const calculando = estado === 'calculando';
   const previsualizando = estado === 'previsualizando';
   const seguimientoEnVivo = navegando && gpsConfiable && !userLocationSimulated;
-  const estadoUltimoFix = gpsConfiable && ultimaActualizacion != null
-    ? `GPS actualizado hace ${Math.max(0, Math.floor(((relojGps || ultimaActualizacion) - ultimaActualizacion) / 1000))} s`
-    : 'GPS no disponible';
+  const estadoUltimoFix = mensajeEstadoGps({
+    gpsConfiable,
+    ultimaActualizacion,
+    ahora: relojGps || ultimaActualizacion,
+  });
   const mensajeError = navError || gpsError;
 
   const modalStyles = isDragging ? {
@@ -392,7 +395,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
               </>
             ) : (
               <p className="route-gps-status route-gps-status--ok">
-                <RiUserLocationLine /> {estadoUltimoFix}. La ruta seguirá tu movimiento en tiempo real.
+                <RiUserLocationLine /> {estadoUltimoFix}
               </p>
             )}
 

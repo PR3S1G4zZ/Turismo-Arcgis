@@ -48,3 +48,9 @@ The focused red runs failed before implementation for the expected missing behav
 | `npm --prefix frontend run test` | Green: 4 files, 11 tests |
 | `npm --prefix frontend run lint` | Green |
 | `npm --prefix frontend run build` | Green; existing chunk-size warning only |
+
+## Stale-fix message correction
+
+- Added `mensajeEstadoGps`, covered by red-to-green helper tests for trusted and stale/unavailable fixes.
+- Route confirmation now only promises real-time following for a trustworthy fix; a stale or unavailable fix prompts the visitor to activate or recover GPS instead.
+- Verification: focused helper suite 2/2; full frontend suite 6 files, 21 tests; lint and build green. The existing Vite chunk-size warning remains non-blocking.
