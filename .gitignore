@@ -59,3 +59,7 @@ scratch_*.html
 Thumbs.db
 .vscode/
 .idea/
+
+# Worktrees y artefactos de ejecución de Superpowers
+.worktrees/
+.superpowers/
