@@ -53,6 +53,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     gpsError,
     gpsPermiso,
     gpsConfiable,
+    ultimaActualizacion,
     reintentarGps,
     origenManual,
     setOrigenManual,
@@ -74,6 +75,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   const [isMinimized, setIsMinimized] = useState(false);
   // Selector de origen a mano, para cuando no hay GPS real.
   const [mostrarSelectorOrigen, setMostrarSelectorOrigen] = useState(false);
+  const [relojGps, setRelojGps] = useState(0);
 
   // Estados de acoplamiento de la Isla Dinámica (Desktop Drag & Snap)
   const [dockPosition, setDockPosition] = useState('top'); // 'top' | 'bottom' | 'left' | 'right'
@@ -226,6 +228,11 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     };
   }, [isDragging, dragOffset]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setRelojGps(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   if (!isOpen) return null;
 
   // Estimación previa al cálculo: distancia en línea recta. Se sustituye por la
@@ -246,6 +253,9 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   const calculando = estado === 'calculando';
   const previsualizando = estado === 'previsualizando';
   const seguimientoEnVivo = navegando && gpsConfiable && !userLocationSimulated;
+  const estadoUltimoFix = gpsConfiable && ultimaActualizacion != null
+    ? `GPS actualizado hace ${Math.max(0, Math.floor(((relojGps || ultimaActualizacion) - ultimaActualizacion) / 1000))} s`
+    : 'GPS no disponible';
   const mensajeError = navError || gpsError;
 
   const modalStyles = isDragging ? {
@@ -382,7 +392,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
               </>
             ) : (
               <p className="route-gps-status route-gps-status--ok">
-                <RiUserLocationLine /> Ubicación real detectada. La ruta seguirá tu movimiento en tiempo real.
+                <RiUserLocationLine /> {estadoUltimoFix}. La ruta seguirá tu movimiento en tiempo real.
               </p>
             )}
 
@@ -406,6 +416,11 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
             {previsualizando && (
               <p className="route-gps-status route-gps-status--warn">
                 <RiErrorWarningLine /> Vista previa: activa el GPS para seguimiento en vivo.
+              </p>
+            )}
+            {!previsualizando && (
+              <p className={`route-gps-status ${gpsConfiable ? 'route-gps-status--ok' : 'route-gps-status--warn'}`}>
+                <RiUserLocationLine /> {estadoUltimoFix}
               </p>
             )}
 

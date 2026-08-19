@@ -43,7 +43,7 @@ export function useNavegacion() {
 
   // Alta precisión (más batería) solo mientras hay una ruta en curso; el resto
   // del tiempo (p. ej. "Zona Actual" en Home) basta con la ubicación gruesa.
-  const precisionAlta = estado !== 'inactivo';
+  const precisionAlta = estado === 'calculando' || estado === 'navegando';
   const {
     position,
     isSimulated,
@@ -113,7 +113,7 @@ export function useNavegacion() {
     ultimoCalculoRef.current = Date.now();
 
     if (esRecalculo) setRecalculando(true);
-    else setEstado('calculando');
+    else setEstado(esVistaPrevia ? 'previsualizando' : 'calculando');
     setError('');
 
     try {

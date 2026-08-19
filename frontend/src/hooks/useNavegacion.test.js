@@ -1,11 +1,16 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { resolver } = vi.hoisted(() => ({ resolver: vi.fn() }));
+const { resolver, precisionArgs } = vi.hoisted(() => ({ resolver: vi.fn(), precisionArgs: [] }));
 let gps;
 
 vi.mock('../utilidades/api', () => ({ rutasApi: { resolver } }));
-vi.mock('./useGeolocation', () => ({ useGeolocation: () => gps }));
+vi.mock('./useGeolocation', () => ({
+  useGeolocation: (options) => {
+    precisionArgs.push(options);
+    return gps;
+  },
+}));
 
 import { useNavegacion } from './useNavegacion';
 
@@ -20,6 +25,7 @@ const site = { name: 'Destino B', lat: 0.001, lng: 0 };
 describe('useNavegacion', () => {
   beforeEach(() => {
     resolver.mockReset();
+    precisionArgs.length = 0;
     resolver.mockResolvedValue(route);
     gps = {
       position: { lat: 0, lng: 0, accuracy: 10 },
@@ -60,5 +66,10 @@ describe('useNavegacion', () => {
     rerender();
     expect(resolver).toHaveBeenCalledTimes(1);
     expect(result.current.avance).toBeUndefined();
+
+    gps = { ...gps, isSimulated: false, gpsConfiable: true };
+    rerender();
+    expect(result.current.estado).toBe('previsualizando');
+    expect(precisionArgs.at(-1)).toEqual({ precisionAlta: false });
   });
 });

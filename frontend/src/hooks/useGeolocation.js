@@ -48,21 +48,6 @@ function mensajeDeError(err, permiso) {
 }
 
 /**
- * Filtra el ruido de una lectura GPS puntual sin atrasar el seguimiento: el
- * peso de la lectura nueva depende de qué tan precisa dice el dispositivo que
- * es (`accuracy`, en metros). Una fijación buena (poca `accuracy`) casi no se
- * suaviza; una mala se acerca más a donde ya estábamos, en vez de mover de
- * golpe la ruta/el tiempo restante por un salto de la triangulación.
- */
-function suavizarPosicion(anterior, nueva, accuracy) {
-  if (!anterior) return nueva;
-  const peso = Math.max(0.25, Math.min(0.9, 1 - (accuracy || 0) / 40));
-  return {
-    lat: anterior.lat + (nueva.lat - anterior.lat) * peso,
-    lng: anterior.lng + (nueva.lng - anterior.lng) * peso,
-  };
-}
-
 /**
  * Ubicación REAL del usuario, en vivo. Usa watchPosition para seguir la posición
  * del dispositivo mientras se mueve. `isSimulated` es true solo cuando se cae al
@@ -99,9 +84,6 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
   // de marcha entre lecturas sin re-suscribir el watch en cada render.
   const ultimaCoordRef = useRef(null);
   const rumboRef = useRef(null);
-  // Última posición ya suavizada (la que se expone), separada de la cruda:
-  // el rumbo se deduce del desplazamiento REAL, no del filtrado.
-  const posicionSuavizadaRef = useRef(null);
   // Último error crudo del GPS, para poder retraducir el mensaje si el estado
   // de permiso se resuelve o cambia DESPUÉS de mostrado (la consulta al
   // Permissions API es async y puede llegar más tarde que el primer error).
@@ -125,7 +107,6 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
 
     setLoading(true);
     setError(null);
-    posicionSuavizadaRef.current = null;
     ultimoErrorRef.current = null;
 
     const handleSuccess = (pos) => {
@@ -163,15 +144,11 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
       ultimaCoordRef.current = { lat: latitude, lng: longitude };
       ultimoTimestampRef.current = timestamp;
 
-      // La posición que se expone sí se suaviza: es la que alimenta el avance
-      // sobre la ruta y el tiempo restante, y es ahí donde el ruido del GPS se
-      // veía como saltos repentinos.
-      const suavizada = suavizarPosicion(posicionSuavizadaRef.current, { lat: latitude, lng: longitude }, accuracy);
-      posicionSuavizadaRef.current = suavizada;
-
+      // Navegación y cámara consumen la fijación aceptada sin interpolación.
+      // La interpolación pertenece exclusivamente al marcador visual del mapa.
       setPosition({
-        lat: suavizada.lat,
-        lng: suavizada.lng,
+        lat: latitude,
+        lng: longitude,
         accuracy,
         // Dirección de marcha en grados (0–360) o null mientras no se conozca.
         heading: rumboRef.current,

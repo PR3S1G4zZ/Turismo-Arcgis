@@ -34,3 +34,17 @@ The focused red runs failed before implementation for the expected missing behav
 
 - The production build reports existing large chunks over 500 kB; it succeeds, but code splitting remains a separate performance concern.
 - `InteractiveMap.jsx` was intentionally not edited. Its owner must ensure that `previsualizando` renders the static route without activating the live follow camera.
+
+## QA correction round
+
+- Removed position smoothing from `useGeolocation`; navigation and camera now receive each accepted raw fix immediately, while marker-only interpolation remains owned by `InteractiveMap`.
+- Added jsdom shims for `matchMedia`, `ResizeObserver`, and animation frames.
+- Kept preview in low-power GPS mode and verified that a later trustworthy GPS state does not auto-promote a preview.
+- Added the direct `rutasApi` POST-body contract test, a >5 s freshness regression, and last-fix status in `RouteModal`.
+
+| Command | Result |
+| --- | --- |
+| `npm --prefix frontend run test -- src/hooks/useGeolocation.test.js src/hooks/useNavegacion.test.js src/utilidades/api.test.js` | Green: 3 files, 9 tests |
+| `npm --prefix frontend run test` | Green: 4 files, 11 tests |
+| `npm --prefix frontend run lint` | Green |
+| `npm --prefix frontend run build` | Green; existing chunk-size warning only |

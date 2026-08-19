@@ -57,6 +57,29 @@ describe('useGeolocation', () => {
     expect(result.current.ultimaActualizacion).toBe(now);
   });
 
+  it('exposes each accepted fix without smoothing it for navigation', async () => {
+    const now = Date.now();
+    const { useGeolocation } = await import('./useGeolocation');
+    const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
+
+    await waitFor(() => expect(success).toBeTypeOf('function'));
+    act(() => success(fix({ timestamp: now, latitude: 0, longitude: 0 })));
+    act(() => success(fix({ timestamp: now + 1, latitude: 0.001, longitude: 0.001 })));
+
+    expect(result.current.position).toMatchObject({ lat: 0.001, lng: 0.001 });
+  });
+
+  it('rejects a newer fix that is older than five seconds during live tracking', async () => {
+    const { useGeolocation } = await import('./useGeolocation');
+    const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
+
+    await waitFor(() => expect(success).toBeTypeOf('function'));
+    act(() => success(fix({ timestamp: Date.now() - 5001 })));
+
+    expect(result.current.gpsConfiable).toBe(false);
+    expect(result.current.position).toBeNull();
+  });
+
   it('rejects a fix whose accuracy radius exceeds 50 metres', async () => {
     const now = Date.now();
     const { useGeolocation } = await import('./useGeolocation');
