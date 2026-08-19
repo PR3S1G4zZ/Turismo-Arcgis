@@ -93,11 +93,14 @@ describe('InteractiveMap camera lifecycle', () => {
     }));
   });
 
-  it('does not invent a camera bearing when live GPS has no finite heading', async () => {
+  it('keeps the current bearing while following live GPS with no finite heading', async () => {
     renderMap(navigation({ posicion: { ...position, heading: null } }));
 
-    await waitFor(() => expect(mapProps).toBeDefined());
-    expect(map.easeTo).not.toHaveBeenCalled();
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(map.stop).toHaveBeenCalledBefore(map.easeTo);
+    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      center: [-75.611, 6.171], bearing: 23, pitch: 50, duration: 250,
+    }));
   });
 
   it('does not recenter an informational map on every GPS update', async () => {

@@ -6,6 +6,7 @@
 - El seguimiento vivo exige navegación, GPS confiable y ubicación no simulada.
 - La previsualización encuadra la ruta sin iniciar seguimiento; el seguimiento en vivo no vuelve a ejecutar `fitBounds`.
 - Cada actualización de cámara detiene la animación anterior y usa `easeTo` de 250 ms con la fijación GPS aceptada y un rumbo finito.
+- Si el GPS confiable aún no entrega un rumbo finito, la cámara conserva su bearing actual y sigue actualizando centro, inclinación y zoom; nunca omite la actualización en vivo.
 - Arrastrar, rotar o inclinar pausa el seguimiento y expone el control de recentrado.
 - La vista informativa no vuelve a centrarse con cada lectura GPS; al salir de la navegación se restablecen norte-arriba y `pitch: 0`.
 

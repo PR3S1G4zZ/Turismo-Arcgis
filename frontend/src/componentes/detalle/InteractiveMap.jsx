@@ -284,13 +284,13 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   // Al navegar y con seguimiento activo: centra en el usuario, ROTA el mapa
   // hacia su rumbo (course-up) e inclina la cámara para el efecto 3D.
   useEffect(() => {
-    if (!mapListo || !enSeguimiento || !siguiendo || !userPosition || !Number.isFinite(userPosition.heading)) return;
+    if (!mapListo || !enSeguimiento || !siguiendo || !userPosition) return;
     const map = mapRef.current;
     if (!map) return;
     map.stop();
     map.easeTo({
       center: [userPosition.lng, userPosition.lat],
-      bearing: userPosition.heading,
+      bearing: Number.isFinite(userPosition.heading) ? userPosition.heading : map.getBearing(),
       pitch: PITCH_NAVEGACION,
       zoom: Math.max(map.getZoom(), ZOOM_NAVEGACION),
       duration: 250,
