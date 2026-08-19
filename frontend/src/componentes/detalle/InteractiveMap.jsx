@@ -124,7 +124,16 @@ const FlechaUsuario = ({ rotacion }) => (
 
 export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const navegacion = useContext(NavegacionContext);
-  const { posicion: userPosition, tramos, ruta, navegando, llegado } = navegacion || {};
+  const {
+    posicion: userPosition,
+    posicionSimulada,
+    gpsConfiable,
+    tramos,
+    ruta,
+    navegando,
+    previsualizando,
+    llegado,
+  } = navegacion || {};
 
   // Brújula del dispositivo: hace girar la flecha cuando el usuario está parado.
   const orientacion = useOrientacion();
@@ -175,6 +184,8 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   // La cámara sigue al usuario mientras navega, salvo que él mueva el mapa.
   const [siguiendo, setSiguiendo] = useState(true);
   const dejarDeSeguir = useCallback(() => setSiguiendo(false), []);
+  const sesionEnVivoRef = useRef(false);
+  const vistaInformativaAplicadaRef = useRef(false);
 
   // Popups (uno a la vez): 'site' | 'user' | null.
   const [popup, setPopup] = useState(null);
@@ -237,12 +248,12 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   }, [site.address, site.lat, site.lng]);
 
   const siteCenter = coordinates;
-  const mapCenter = userPosition ? [userPosition.lat, userPosition.lng] : siteCenter;
+  const mapCenter = siteCenter;
 
   // El trayecto solo se pinta cuando esta instancia del mapa está en modo ruta
   // y hay una navegación viva; el resto del tiempo el mapa es informativo.
-  const mostrarTrayecto = showRoute && ruta && (navegando || llegado);
-  const enSeguimiento = mostrarTrayecto && navegando;
+  const mostrarTrayecto = showRoute && ruta && (previsualizando || navegando || llegado);
+  const enSeguimiento = mostrarTrayecto && navegando && gpsConfiable && !posicionSimulada;
 
   const mapStyle = useMemo(() => {
     if (token && !arcgisFallo) return estiloArcgis(isDark, token);
@@ -262,36 +273,50 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     [token]
   );
 
+  // Cada entrada a una sesión de GPS en vivo recupera el seguimiento aunque la
+  // sesión anterior hubiera quedado pausada por un gesto manual.
+  useEffect(() => {
+    if (enSeguimiento && !sesionEnVivoRef.current) setSiguiendo(true);
+    sesionEnVivoRef.current = enSeguimiento;
+  }, [enSeguimiento]);
+
   // ─── Cámara ───────────────────────────────────────────────
   // Al navegar y con seguimiento activo: centra en el usuario, ROTA el mapa
   // hacia su rumbo (course-up) e inclina la cámara para el efecto 3D.
   useEffect(() => {
-    if (!mapListo || !enSeguimiento || !siguiendo || !userPosition) return;
+    if (!mapListo || !enSeguimiento || !siguiendo || !userPosition || !Number.isFinite(userPosition.heading)) return;
     const map = mapRef.current;
     if (!map) return;
+    map.stop();
     map.easeTo({
       center: [userPosition.lng, userPosition.lat],
-      bearing: userPosition.heading ?? map.getBearing(),
+      bearing: userPosition.heading,
       pitch: PITCH_NAVEGACION,
       zoom: Math.max(map.getZoom(), ZOOM_NAVEGACION),
-      duration: 600,
+      duration: 250,
     });
   }, [mapListo, enSeguimiento, siguiendo, userPosition]);
 
-  // Fuera de navegación: mapa al norte, sin inclinar, centrado en el objetivo.
-  // No forzamos el zoom para respetar el que ajuste el usuario.
+  // La vista informativa se inicializa una vez; las lecturas GPS posteriores no
+  // deben pelear con quien explora el mapa. Al salir de navegación, además,
+  // restablece norte-arriba y cámara plana de forma explícita.
   useEffect(() => {
-    if (!mapListo || mostrarTrayecto || !mapCenter) return;
+    if (!mapListo || mostrarTrayecto || !mapCenter || vistaInformativaAplicadaRef.current) return;
     const map = mapRef.current;
     if (!map) return;
-    map.easeTo({ center: [mapCenter[1], mapCenter[0]], bearing: 0, pitch: 0, duration: 400 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapListo, mostrarTrayecto, mapCenter?.[0], mapCenter?.[1]]);
+    map.stop();
+    map.easeTo({ center: [mapCenter[1], mapCenter[0]], bearing: 0, pitch: 0, duration: 250 });
+    vistaInformativaAplicadaRef.current = true;
+  }, [mapListo, mostrarTrayecto, mapCenter]);
+
+  useEffect(() => {
+    if (mostrarTrayecto) vistaInformativaAplicadaRef.current = false;
+  }, [mostrarTrayecto]);
 
   // Al recibir un trayecto nuevo se encuadra completo una sola vez; a partir de
   // ahí la cámara de seguimiento acompaña al usuario.
   useEffect(() => {
-    if (!mapListo || !mostrarTrayecto || !ruta?.puntos || ruta.puntos.length < 2) return;
+    if (!mapListo || !previsualizando || !ruta?.puntos || ruta.puntos.length < 2) return;
     const map = mapRef.current;
     if (!map) return;
     let oeste = Infinity, sur = Infinity, este = -Infinity, norte = -Infinity;
@@ -301,8 +326,9 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       if (lat < sur) sur = lat;
       if (lat > norte) norte = lat;
     }
-    map.fitBounds([[oeste, sur], [este, norte]], { padding: 50, duration: 600 });
-  }, [mapListo, mostrarTrayecto, ruta]);
+    map.stop();
+    map.fitBounds([[oeste, sur], [este, norte]], { padding: 50, duration: 250 });
+  }, [mapListo, previsualizando, ruta]);
 
   if (loading || !coordinates || !tokenListo) {
     return (
@@ -384,6 +410,12 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           if (!mapListo) setMapError(`${status ? status + ' – ' : ''}${msg}`);
         }}
         onDragStart={() => {
+          if (enSeguimiento) dejarDeSeguir();
+        }}
+        onRotateStart={() => {
+          if (enSeguimiento) dejarDeSeguir();
+        }}
+        onPitchStart={() => {
           if (enSeguimiento) dejarDeSeguir();
         }}
         attributionControl={{ compact: true }}
