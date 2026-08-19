@@ -10,7 +10,7 @@ sitio, apoyada en el servicio de rutas de **ArcGIS**.
 ## Arquitectura
 
 ```
-frontend/   React 19 + Vite + Leaflet — catálogo, mapa y navegación
+frontend/   React 19 + Vite + MapLibre/react-map-gl — catálogo, mapa y navegación
 backend/    Node.js + Express + MySQL — API REST y proxy de ruteo
 BD/         Script SQL del esquema, para desplegar/inspeccionar la BD a mano
 docker-compose.yml   Contenedor de MySQL (+ Adminer) para desarrollo/despliegue
@@ -55,8 +55,8 @@ El backend consume el servicio hospedado **World Route** de Esri
 ### Cómo está integrado en este proyecto
 
 ```
-Navegador (React + Leaflet)      Backend (Express)          ArcGIS
-────────────────────────         ──────────────────          ──────
+Navegador (React + MapLibre)     Backend (Express)          ArcGIS
+────────────────────────────     ──────────────────          ──────
 useNavegacion()                  POST /api/rutas/resolver    /solve
   watchPosition (GPS real) ──┐     ├─ guarda la credencial
                              ├──►  ├─ cachea travelModes ───►
@@ -83,8 +83,29 @@ useNavegacion()                  POST /api/rutas/resolver    /solve
   resolver la ruta desde la posición actual.
 - **Indicaciones giro a giro en español**, con voz (Web Speech API),
   distancia/tiempo restante y detección de llegada.
-- El mapa sigue siendo **Leaflet + teselas de CARTO** (no se usa el SDK de
-  mapas de ArcGIS): así no se consume cuota de *basemaps*, solo la de ruteo.
+- El mapa usa **MapLibre GL mediante `react-map-gl`**. Prefiere el estilo
+  vectorial de ArcGIS cuando hay token de basemap y puede caer al estilo de
+  CARTO si ese basemap falla; no usa el SDK de mapas de ArcGIS.
+
+### Confiabilidad GPS y cámara
+
+- Una fijación habilita seguimiento solo si es real, tiene precisión declarada
+  de **50 m o mejor**, timestamp estrictamente creciente y antigüedad de hasta
+  **5 s** durante navegación live. `watchPosition` live usa alta precisión,
+  `maximumAge: 1000` y `timeout: 5000`.
+- La posición GPS aceptada llega sin demora artificial a progreso, llegada,
+  recálculo y cámara. La interpolación queda limitada al marcador visual.
+- Si se pierde señal después de una fijación confiable, se conserva esa última
+  coordenada únicamente para mostrarla y se suspenden progreso, llegada, voz y
+  recálculo. El centro simulado de Itagüí solo se usa antes de la primera
+  fijación confiable.
+- Una ruta iniciada desde origen manual o simulado es **vista previa estática**:
+  se dibuja, pero no afirma seguimiento en vivo ni habilita ETA, progreso,
+  llegada, voz o recálculo. Para pasar a live se inicia una nueva ruta con GPS
+  confiable.
+- La cámara encuadra la vista previa. En live usa *course-up* sobre la posición
+  GPS aceptada; al salir vuelve a norte y sin inclinación. Los gestos pausan el
+  seguimiento y exponen el control para recentrar.
 
 Detalle completo de la implementación, parámetros del servicio, umbrales de
 recálculo y guía de diagnóstico en
@@ -112,8 +133,9 @@ para desarrollo, no para producción).
 
 ## Tecnologías
 
-**Frontend**: React 19, Vite, React Router, Leaflet + React Leaflet, Recharts,
-React Icons.
+**Frontend**: React 19, Vite, React Router, MapLibre GL + `react-map-gl`,
+Recharts, React Icons. Leaflet sigue como dependencia heredada, pero el mapa
+de navegación se implementa con MapLibre.
 
 **Backend**: Node.js + Express, MySQL (`mysql2`), JWT (`jsonwebtoken`),
 `bcryptjs`, `helmet`, `express-rate-limit`, `multer` (subida de imágenes),
