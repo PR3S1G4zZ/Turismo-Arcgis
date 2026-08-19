@@ -26,7 +26,8 @@ Commands executed with the bundled Node/npm CLI:
 & 'C:\Program Files\nodejs\node.exe' 'C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js' --prefix frontend run build
 ```
 
-- Tests: PASS — 5 files, 19 tests.
+- Tests: PASS — 5 files, 19 tests at Task 5 completion. Post-Task-5 final UI
+  verification at `9bb67ef`: PASS — 6 files, 21 tests.
 - Lint: PASS.
 - Production build: PASS. Vite reports the existing non-blocking warning for
   chunks larger than 500 kB after minification.
