@@ -12,6 +12,8 @@ const FALLBACK_LNG = -75.6091;
 // lecturas separadas por al menos unos metros (menos que eso es ruido del GPS).
 const VELOCIDAD_MIN_MS = 0.5;
 const DESPLAZAMIENTO_MIN_M = 5;
+const PRECISION_MAXIMA_M = 50;
+const EDAD_MAXIMA_EN_VIVO_MS = 5000;
 
 const geolocationSupported =
   typeof navigator !== 'undefined' && 'geolocation' in navigator;
@@ -83,6 +85,8 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
   );
   const [loading, setLoading] = useState(geolocationSupported);
   const [isSimulated, setIsSimulated] = useState(!geolocationSupported);
+  const [gpsConfiable, setGpsConfiable] = useState(false);
+  const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
   // Estado real del permiso ('prompt' | 'granted' | 'denied'), cuando el
   // navegador expone el Permissions API para geolocalización. 'desconocido'
   // en el resto de los casos (p. ej. Safari/iOS), donde solo queda inferir
@@ -102,6 +106,7 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
   // de permiso se resuelve o cambia DESPUÉS de mostrado (la consulta al
   // Permissions API es async y puede llegar más tarde que el primer error).
   const ultimoErrorRef = useRef(null);
+  const ultimoTimestampRef = useRef(null);
 
   useEffect(() => {
     permisoRef.current = permiso;
@@ -125,6 +130,19 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
 
     const handleSuccess = (pos) => {
       const { latitude, longitude, accuracy, heading: rumboGps, speed } = pos.coords;
+      const timestamp = pos.timestamp;
+      const esReciente = !precisionAltaRef.current || Date.now() - timestamp <= EDAD_MAXIMA_EN_VIVO_MS;
+      const esConfiable = Number.isFinite(accuracy)
+        && accuracy <= PRECISION_MAXIMA_M
+        && Number.isFinite(timestamp)
+        && (ultimoTimestampRef.current == null || timestamp > ultimoTimestampRef.current)
+        && esReciente;
+
+      if (!esConfiable) {
+        setGpsConfiable(false);
+        setLoading(false);
+        return;
+      }
 
       // Rumbo, en orden de preferencia: 1) el del GPS si hay movimiento real,
       // 2) el deducido entre la lectura anterior y esta, 3) el último conocido.
@@ -143,6 +161,7 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
         rumboRef.current = suavizarRumbo(rumboRef.current, rumboCrudo);
       }
       ultimaCoordRef.current = { lat: latitude, lng: longitude };
+      ultimoTimestampRef.current = timestamp;
 
       // La posición que se expone sí se suaviza: es la que alimenta el avance
       // sobre la ruta y el tiempo restante, y es ahí donde el ruido del GPS se
@@ -161,6 +180,8 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
       ultimoErrorRef.current = null;
       setError(null);
       setIsSimulated(false);
+      setGpsConfiable(true);
+      setUltimaActualizacion(timestamp);
       setLoading(false);
     };
 
@@ -168,21 +189,28 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
       console.warn(`Error de geolocalización (${err.code}): ${err.message}.`);
       ultimoErrorRef.current = err;
       setError(mensajeDeError(err, permisoRef.current));
-      // Último recurso: Itagüí Centro, marcado como simulado.
-      setPosition({ lat: FALLBACK_LAT, lng: FALLBACK_LNG });
-      setIsSimulated(true);
+      setGpsConfiable(false);
+      // Solo se usa un origen sintético cuando nunca hubo una fijación fiable.
+      // Si el GPS falla después, conservar el último punto real evita que la
+      // ruta parezca saltar a otro lugar mientras se recupera la señal.
+      if (ultimoTimestampRef.current == null) {
+        setPosition({ lat: FALLBACK_LAT, lng: FALLBACK_LNG });
+        setIsSimulated(true);
+      }
       setLoading(false);
     };
 
     // Seguimiento en vivo de la ubicación real del dispositivo.
     watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
       enableHighAccuracy: precisionAltaRef.current,
-      timeout: 10000,
-      maximumAge: 0,
+      timeout: 5000,
+      maximumAge: 1000,
     });
   }, []);
 
   useEffect(() => {
+    // La suscripción del GPS se crea al montar y su callback es quien actualiza estado.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     iniciarSeguimiento();
     return () => {
       if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
@@ -203,6 +231,13 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
     iniciarSeguimiento();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [precisionAlta]);
+
+  useEffect(() => {
+    if (!precisionAlta || ultimaActualizacion == null) return undefined;
+    const restante = EDAD_MAXIMA_EN_VIVO_MS - (Date.now() - ultimaActualizacion);
+    const timer = setTimeout(() => setGpsConfiable(false), Math.max(0, restante));
+    return () => clearTimeout(timer);
+  }, [precisionAlta, ultimaActualizacion]);
 
   // Permissions API: cuando está disponible, dice el estado REAL del permiso
   // ('prompt' | 'granted' | 'denied'), no solo lo que se infiere de un error
@@ -246,5 +281,15 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
   // reintentar() no puede volver a mostrar el diálogo — eso solo lo deshace
   // el usuario desde los ajustes de sitio de su navegador. Si el estado es
   // "prompt" (nunca se decidió, o se reseteó), sí vuelve a preguntar.
-  return { position, error, loading, isSimulated, permiso, reintentar: iniciarSeguimiento };
+  return {
+    position,
+    error,
+    loading,
+    isSimulated,
+    posicionSimulada: isSimulated,
+    gpsConfiable,
+    ultimaActualizacion,
+    permiso,
+    reintentar: iniciarSeguimiento,
+  };
 };

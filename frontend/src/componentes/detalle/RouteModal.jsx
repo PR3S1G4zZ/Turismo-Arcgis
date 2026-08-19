@@ -52,6 +52,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     error: navError,
     gpsError,
     gpsPermiso,
+    gpsConfiable,
     reintentarGps,
     origenManual,
     setOrigenManual,
@@ -243,6 +244,8 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   const currentDock = isMobile ? 'bottom' : (isRouteMapOpen ? 'left' : dockPosition);
   const isPill = isMinimized && step === 'tracking';
   const calculando = estado === 'calculando';
+  const previsualizando = estado === 'previsualizando';
+  const seguimientoEnVivo = navegando && gpsConfiable && !userLocationSimulated;
   const mensajeError = navError || gpsError;
 
   const modalStyles = isDragging ? {
@@ -276,7 +279,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
         <div className={`route-modal-content ${isPill ? 'route-modal-content--hidden' : ''}`}>
           {window.innerWidth > 768 && <div className="route-modal__drag-handle" />}
           <div className="route-modal__actions-top">
-            {step === 'tracking' && (
+            {step === 'tracking' && !previsualizando && (
               <>
                 <button
                   className="route-modal__minimize"
@@ -400,13 +403,19 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
           <div className="route-modal-step">
             <h3 className="route-modal__title route-tracking-title">{timelineTitle}</h3>
 
+            {previsualizando && (
+              <p className="route-gps-status route-gps-status--warn">
+                <RiErrorWarningLine /> Vista previa: activa el GPS para seguimiento en vivo.
+              </p>
+            )}
+
             {/* Maniobra actual: lo primero que debe ver quien va caminando. */}
-            {calculando ? (
+            {!previsualizando && calculando ? (
               <div className="maniobra-card maniobra-card--cargando">
                 <RiRefreshLine className="maniobra-card__spin" />
                 <span>Calculando la mejor ruta…</span>
               </div>
-            ) : mensajeError ? (
+            ) : !previsualizando && mensajeError ? (
               <div className="maniobra-card maniobra-card--error">
                 <RiErrorWarningLine />
                 <div className="maniobra-card__cuerpo">
@@ -423,7 +432,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                   )}
                 </div>
               </div>
-            ) : instruccion ? (
+            ) : !previsualizando && instruccion ? (
               <div className={`maniobra-card ${llegado ? 'maniobra-card--llegada' : ''}`}>
                 <div className="maniobra-card__icono">
                   <IconoManiobra texto={instruccion.texto} llegada={llegado} />
@@ -443,19 +452,19 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
             ) : null}
 
             {/* Avisos de estado del seguimiento */}
-            {recalculando && (
+            {!previsualizando && recalculando && (
               <p className="route-gps-status route-gps-status--wait">
                 <RiRefreshLine /> Te saliste del trayecto: recalculando…
               </p>
             )}
-            {!recalculando && fueraDeRuta && navegando && (
+            {!previsualizando && !recalculando && fueraDeRuta && seguimientoEnVivo && (
               <p className="route-gps-status route-gps-status--warn">
                 <RiErrorWarningLine /> Estás fuera del trayecto trazado.
               </p>
             )}
 
             {/* Resumen: cuánto falta */}
-            {ruta && (
+            {ruta && !previsualizando && seguimientoEnVivo && (
               <div className="route-resumen">
                 <div className="route-resumen__dato">
                   <span className="route-resumen__valor font-mono">{formatearDistancia(distanciaRestanteM)}</span>
@@ -473,7 +482,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
             )}
 
             {/* Progreso de Ruta */}
-            <div className="timeline-progress-section">
+            {!previsualizando && seguimientoEnVivo && <div className="timeline-progress-section">
               <div className="timeline-progress-labels">
                 <span className="progress-label-title">PROGRESO DE RUTA (INICIO: {startTime})</span>
                 <span className="progress-label-value font-mono">{progreso}% Completado</span>
@@ -487,12 +496,12 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                 <p className="route-gps-status route-gps-status--ok">
                   <RiCheckboxCircleLine /> ¡Has llegado a tu destino!
                 </p>
-              ) : navegando ? (
+              ) : seguimientoEnVivo ? (
                 <p className="route-gps-status route-gps-status--ok">
                   <RiUserLocationLine /> Siguiendo tu ubicación en tiempo real…
                 </p>
               ) : null}
-            </div>
+            </div>}
 
             {/* Timeline */}
             <div className="route-timeline">
@@ -505,8 +514,8 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                   <div className="timeline-line"></div>
                 </div>
                 <div className="timeline-right">
-                  <span className="timeline-stop-name">Mi ubicación</span>
-                  <span className="timeline-stop-time font-mono">SALIDA {startTime}</span>
+                  <span className="timeline-stop-name">{previsualizando ? 'Punto de partida elegido' : 'Mi ubicación'}</span>
+                  {!previsualizando && <span className="timeline-stop-time font-mono">SALIDA {startTime}</span>}
                 </div>
               </div>
 
@@ -526,7 +535,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                     <h4 className="next-stop-card__title">{site.name}</h4>
                     <p className="next-stop-card__desc">{site.description}</p>
                   </div>
-                  <div className="route-metadata-outside">
+                  {!previsualizando && seguimientoEnVivo && <div className="route-metadata-outside">
                     <span className="next-stop-meta-badge font-mono">
                       COORDS: {site.lat ? parseFloat(site.lat).toFixed(4) : '6.1718'}° N
                     </span>
@@ -534,7 +543,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                       {mode === 'walk' ? <RiWalkLine /> : <RiCarLine />}
                       <span>Llegada aprox. {endTime} (~{formatearDuracion(tiempoRestanteMin)})</span>
                     </span>
-                  </div>
+                  </div>}
                 </div>
               </div>
             </div>
