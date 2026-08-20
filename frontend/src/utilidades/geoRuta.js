@@ -151,10 +151,15 @@ export function localizarEnRuta(ruta, pos, desdeIndice = 0) {
   const fin = Math.min(puntos.length - 1, inicio + 60);
   let mejor = buscar(inicio, fin);
 
-  // Si la ventana deja al usuario lejos de la ruta, puede ser un desvío real
-  // o que la ventana se quedó corta: se verifica contra la ruta completa.
-  if (mejor.distancia > 30 && (inicio > 0 || fin < puntos.length - 1)) {
-    const completa = buscar(0, puntos.length - 1);
+  // Si la ventana deja al usuario lejos de la ruta, puede ser que retrocedió
+  // más de lo que cubre el margen hacia atrás: se reintenta desde el inicio
+  // de la ruta, pero SIN pasar de `fin`. Un avance más allá de la ventana
+  // normal debe leerse como desvío real (dispara el recálculo en
+  // useNavegacion), nunca como un salto de progreso: si la ruta pasa cerca de
+  // sí misma más adelante (una vuelta a la manzana, calles paralelas), buscar
+  // sin este límite pintaría como "recorrido" un tramo que no se ha caminado.
+  if (mejor.distancia > 30 && inicio > 0) {
+    const completa = buscar(0, fin);
     if (completa.distancia < mejor.distancia) mejor = completa;
   }
 
