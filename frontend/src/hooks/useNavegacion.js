@@ -39,14 +39,16 @@ function puntoDeSitio(sitio) {
 }
 
 export function useNavegacion() {
-  const [estado, setEstado] = useState('inactivo'); // inactivo | calculando | navegando | llegado | error
+  const [estado, setEstado] = useState('inactivo'); // inactivo | calculando | previsualizando | navegando | llegado | error
 
   // Alta precisión (más batería) solo mientras hay una ruta en curso; el resto
   // del tiempo (p. ej. "Zona Actual" en Home) basta con la ubicación gruesa.
-  const precisionAlta = estado !== 'inactivo';
+  const precisionAlta = estado === 'calculando' || estado === 'navegando';
   const {
     position,
     isSimulated,
+    gpsConfiable,
+    ultimaActualizacion,
     loading: gpsCargando,
     error: gpsError,
     permiso: gpsPermiso,
@@ -105,13 +107,13 @@ export function useNavegacion() {
   }, []);
 
   // ─── Cálculo de la ruta ───────────────────────────────────
-  const calcular = useCallback(async (origen, destinoPunto, modoViaje, esRecalculo = false) => {
+  const calcular = useCallback(async (origen, destinoPunto, modoViaje, esRecalculo = false, esVistaPrevia = false) => {
     if (calculandoRef.current) return;
     calculandoRef.current = true;
     ultimoCalculoRef.current = Date.now();
 
     if (esRecalculo) setRecalculando(true);
-    else setEstado('calculando');
+    else setEstado(esVistaPrevia ? 'previsualizando' : 'calculando');
     setError('');
 
     try {
@@ -127,7 +129,7 @@ export function useNavegacion() {
 
       setRuta(preparada);
       setTramos({ recorrido: [], restante: preparada.puntos });
-      setEstado('navegando');
+      setEstado(esVistaPrevia ? 'previsualizando' : 'navegando');
 
       if (esRecalculo) hablar('Recalculando la ruta.');
       return preparada;
@@ -163,8 +165,9 @@ export function useNavegacion() {
     const puntoDestino = { ...base, nombre: sitio.name || 'Destino' };
     setDestino(puntoDestino);
     setModo(modoViaje);
-    calcular(origen, puntoDestino, modoViaje);
-  }, [position, origenManual, calcular]);
+    const esVistaPrevia = Boolean(origenManual || isSimulated || !gpsConfiable);
+    calcular(origen, puntoDestino, modoViaje, false, esVistaPrevia);
+  }, [position, origenManual, isSimulated, gpsConfiable, calcular]);
 
   const detener = useCallback(() => {
     callar();
@@ -184,15 +187,15 @@ export function useNavegacion() {
   }, [callar]);
 
   const recalcularAhora = useCallback(() => {
-    if (!position || !destino) return;
+    if (!position || !destino || !gpsConfiable || isSimulated || estado !== 'navegando') return;
     ultimoCalculoRef.current = 0;
     calcular(position, destino, modo, true);
-  }, [position, destino, modo, calcular]);
+  }, [position, destino, modo, gpsConfiable, isSimulated, estado, calcular]);
 
   // ─── Bucle de seguimiento ─────────────────────────────────
   // Se dispara con cada lectura del GPS mientras haya navegación activa.
   useEffect(() => {
-    if (estado !== 'navegando' || !position || !rutaRef.current || !destino) return;
+    if (estado !== 'navegando' || !gpsConfiable || isSimulated || !position || !rutaRef.current || !destino) return;
 
     const rutaActual = rutaRef.current;
     const pos = [position.lat, position.lng];
@@ -251,7 +254,11 @@ export function useNavegacion() {
     } else {
       lecturasFueraRef.current = 0;
     }
-  }, [position, estado, destino, modo, calcular, hablar]);
+  }, [position, estado, destino, modo, gpsConfiable, isSimulated, calcular, hablar]);
+
+  useEffect(() => {
+    if (estado === 'navegando' && !gpsConfiable) callar();
+  }, [estado, gpsConfiable, callar]);
 
   // Silenciar la voz al desmontar.
   useEffect(() => callar, [callar]);
@@ -270,6 +277,8 @@ export function useNavegacion() {
     // Ubicación del usuario
     posicion: position,
     posicionSimulada: isSimulated,
+    gpsConfiable,
+    ultimaActualizacion,
     gpsCargando,
     gpsError,
     gpsPermiso,
@@ -282,8 +291,9 @@ export function useNavegacion() {
 
     // Estado de la navegación
     estado,
-    activa: estado === 'calculando' || estado === 'navegando' || estado === 'llegado',
+    activa: estado === 'calculando' || estado === 'previsualizando' || estado === 'navegando' || estado === 'llegado',
     navegando: estado === 'navegando',
+    previsualizando: estado === 'previsualizando',
     llegado: estado === 'llegado',
     recalculando,
     error,

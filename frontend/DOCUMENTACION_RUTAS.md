@@ -29,14 +29,14 @@ construirlo.
 
 Por eso aquí:
 
-1. **El mapa sigue siendo Leaflet.** No se instala el SDK de ArcGIS: pesa mucho y
-   obligaría a rehacer el mapa y los temas claro/oscuro de CARTO. Los teselados
-   siguen siendo los de CARTO, así que **no se consume cuota de basemaps**.
+1. **El mapa usa MapLibre GL mediante `react-map-gl`**, sin instalar el SDK de
+   mapas de ArcGIS. Prefiere el estilo vectorial de ArcGIS cuando recibe un
+   token de basemap y usa CARTO únicamente como respaldo del estilo.
 2. **El ruteo se consume por REST**, a través del backend.
 3. **El seguimiento es propio**, en `useNavegacion` + `geoRuta`.
 
 ```
-Navegador (React + Leaflet)         Backend Express            ArcGIS
+Navegador (React + MapLibre)        Backend Express            ArcGIS
 ────────────────────────────        ───────────────            ──────
 useNavegacion()                     POST /api/rutas/resolver   /solve
   watchPosition ──┐                   ├─ guarda la credencial
@@ -139,8 +139,10 @@ Respuesta normalizada (idéntica venga de ArcGIS o de OSRM):
   "duracionMin": 24.5 }
 ```
 
-`puntos` va en `[lat, lng]` (orden de Leaflet). ArcGIS entrega `[x, y]` =
-`[lng, lat]`; la conversión se hace en el backend, no en los componentes.
+`puntos` va en `[lat, lng]` como límite de la aplicación. ArcGIS entrega
+`[x, y]` = `[lng, lat]`; la conversión se hace en el backend. MapLibre recibe
+GeoJSON en `[lng, lat]`, conversión que queda encapsulada en el componente de
+mapa.
 
 **Límite:** 60 peticiones por IP cada 5 minutos. No es una restricción al
 usuario —navegar normalmente no pasa de ~20— sino una red de seguridad contra un
@@ -159,7 +161,7 @@ En `backend/src/utils/arcgisRouting.js`. Los que importan:
 | `directionsLanguage` | `es` | Indicaciones ya en español, sin traducir nada |
 | `directionsLengthUnits` | `esriNAUMeters` | Evita convertir millas en el cliente |
 | `outputLines` | `esriNAOutputLineTrueShape` | Geometría real de la calle, no una recta entre paradas |
-| `outSR` | `4326` | WGS 84, lo que espera Leaflet |
+| `outSR` | `4326` | WGS 84 que preserva el límite `{ lat, lng }` y la geometría del mapa |
 
 > ⚠️ ArcGIS devuelve **HTTP 200 incluso cuando falla**; el error viene en el
 > cuerpo. `pedirJson()` lo comprueba y lanza excepción.
@@ -205,6 +207,42 @@ sola ruta activa y un solo `watchPosition`** para toda la aplicación. El mapa y
 la isla de ruta leen del mismo contexto, así que no pueden mostrar datos
 distintos.
 
+### Política de ubicación y estados
+
+`useGeolocation` acepta una lectura para live solo cuando su `timestamp` es
+estrictamente posterior al último aceptado, `accuracy` es finita y no supera
+**50 m**, y la lectura tiene como máximo **5 s** de antigüedad. Durante live,
+`watchPosition` usa `enableHighAccuracy: true`, `maximumAge: 1000` y
+`timeout: 5000`; fuera de live el seguimiento es de bajo consumo.
+
+La lectura aceptada alimenta de inmediato navegación, cámara y rumbo. El único
+suavizado permitido es la interpolación del marcador que se dibuja en
+`InteractiveMap`; no se aplica a progreso, llegada ni recálculo. La interfaz
+indica la antigüedad de la última lectura aceptada.
+
+Estados relevantes:
+
+| Estado | Comportamiento |
+|---|---|
+| `gpsConfiable=true` | Hay una lectura real, fresca, monotónica y con precisión ≤50 m; puede haber seguimiento live. |
+| `gpsConfiable=false` tras un error o TTL | Se conserva la última coordenada confiable solo para mostrarla; se suspenden progreso, llegada, voz y recálculo. |
+| `posicionSimulada=true` | Solo antes de una fijación confiable; nunca habilita seguimiento. |
+| `previsualizando` | Ruta desde origen manual o simulado: se dibuja estática, sin ETA live, progreso, llegada, voz ni recálculo; un GPS posterior no la promociona automáticamente. |
+| `navegando` | Ruta live creada desde GPS confiable. |
+
+### Cámara MapLibre
+
+- En `previsualizando`, `fitBounds` encuadra la geometría una vez y no activa
+  seguimiento.
+- En `navegando` con GPS confiable, la cámara usa la coordenada GPS aceptada,
+  *course-up* y `pitch: 50`. Detiene cualquier transición anterior antes de
+  mover la cámara; si no hay rumbo GPS, conserva el bearing actual.
+- Al salir de navegación, la cámara vuelve explícitamente a norte (`bearing: 0`)
+  y sin inclinación (`pitch: 0`). Un gesto de pan, rotación o inclinación pausa
+  el seguimiento hasta usar el control de recentrado.
+- En el mapa informativo, las actualizaciones GPS no recapturan pan ni zoom del
+  usuario después de la vista inicial.
+
 ---
 
 ## Requisitos de despliegue
@@ -226,7 +264,38 @@ Para el volumen de Itagüí es efectivamente gratuito. El riesgo no es el uso
 orgánico sino un fallo que dispare peticiones en bucle; de ahí la espera entre
 recálculos en el cliente y el rate-limit en el servidor.
 
-Los teselados del mapa **no consumen cuota de ArcGIS**: siguen siendo de CARTO.
+El basemap se representa con MapLibre; el estilo de ArcGIS puede requerir su
+propio token, y CARTO se conserva como respaldo si ese estilo no carga.
+
+---
+
+## Checklist de lanzamiento en dispositivo físico
+
+Ejecutar en la URL de producción **HTTPS** (no solo en `localhost`). Registrar
+únicamente resultado, proveedor de ruta, modo, precisión y edad de la lectura;
+**no guardar coordenadas personales** ni trazas de ubicación en el repositorio.
+
+- [ ] Con permiso limpio, conceder ubicación y confirmar una lectura con
+  precisión ≤50 m y edad visible ≤5 s.
+- [ ] Probar una ruta A→B tanto a pie como en auto; confirmar que el endpoint
+  recibe `{ origen: {lat,lng}, destino: {lat,lng} }` en ese orden y anotar el
+  proveedor ArcGIS u OSRM.
+- [ ] Durante una ruta live, verificar cámara *course-up*, centrada en la
+  ubicación real; mover, rotar e inclinar el mapa y comprobar que se pausa el
+  seguimiento y aparece el control de recentrado.
+- [ ] Provocar una desviación deliberada de al menos 50 m: un salto aislado no
+  debe recalcular; tres lecturas confirmadas, respetando la espera de 15 s,
+  deben hacerlo.
+- [ ] Simular pérdida temporal de GPS después de una fijación válida: la última
+  posición puede seguir dibujada, pero no deben avanzar progreso, llegada, voz
+  ni recálculo; al superar 5 s debe verse estado no-live.
+- [ ] Sin GPS confiable, elegir origen manual y confirmar que se muestra una
+  vista previa estática, sin mensajes ni controles de seguimiento en vivo.
+- [ ] Finalizar una ruta live y confirmar norte-arriba, `pitch: 0` y que no hay
+  un `fitBounds` posterior que recupere course-up.
+- [ ] Documentar fecha, navegador/dispositivo, permisos, modo, proveedor,
+  precisión, antigüedad y resultado de cada caso sin incluir latitud, longitud
+  ni capturas que revelen ubicación personal.
 
 ---
 
