@@ -1,7 +1,7 @@
 ---
 phase: 05-mantener-la-pantalla-activa
 status: passed
-verified: 2026-09-01
+verified: 2026-09-01T15:40:00Z
 verifier: codex-inline
 ---
 
@@ -37,6 +37,10 @@ volver de segundo plano y degradación segura sin soporte del navegador.
 - `npm run lint`: PASS.
 - `npm run build`: PASS. Vite reports only the existing large-chunk advisory (>500 kB).
 - `git diff --check`: PASS.
+
+La comprobación posterior al hardening de `release` repitió la suite específica
+(10/10), la suite completa (40/40), lint, build y `git diff --check`; todos
+permanecen en PASS.
 
 ## Human Verification
 
