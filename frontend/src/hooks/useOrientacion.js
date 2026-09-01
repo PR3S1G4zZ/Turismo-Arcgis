@@ -8,6 +8,7 @@
 // expone `activar()`. En Android/escritorio no hace falta permiso y arranca solo.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { suavizarRumbo } from '../utilidades/geoRuta';
+import { marcar, MARCAS } from '../utilidades/diagnosticoLatencias';
 
 // ¿La plataforma exige pedir permiso explícito (iOS 13+)?
 const requierePermiso =
@@ -46,6 +47,11 @@ export function useOrientacion() {
     const ahora = Date.now();
     if (ahora - ultimoEmitRef.current < 100) return;
     ultimoEmitRef.current = ahora;
+    // Marca del tramo 2 (orientacion->flecha) del diagnóstico de latencias
+    // (Fase 1, DIAG-01): solo cambios de rumbo aceptados (post-throttle,
+    // post-validación de leerRumbo) la disparan. El extremo final se
+    // empareja en InteractiveMap.jsx (Plan 01-04).
+    marcar(MARCAS.ORIENTACION_CAMBIO);
     setHeading(Math.round(suavRef.current));
   }, []);
 
