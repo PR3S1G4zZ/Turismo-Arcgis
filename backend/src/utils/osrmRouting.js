@@ -106,6 +106,12 @@ export async function resolverRutaOsrm(origen, destino, modo) {
     pasos,
     distanciaM,
     duracionMin: duracionDe(distanciaM, Number(ruta.duration)),
+    // OSRM no modela tráfico y nunca es el proveedor ArcGIS: ambos campos van
+    // en false siempre, para que el cliente vea la degradación sin ambigüedad
+    // en vez de omitir los campos (TRAFFIC-01).
+    traficoSolicitado: false,
+    traficoAplicado: false,
+    degradacionTrafico: modo === 'car' ? 'proveedor-osrm-sin-trafico' : null,
   };
   capturarSiCorresponde('osrm-normalizado', normalizado);
   return normalizado;

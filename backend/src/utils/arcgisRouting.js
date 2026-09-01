@@ -171,13 +171,35 @@ async function elegirModo(modo) {
   return null;
 }
 
+// ─── Tráfico en vivo (solo modo auto) ───────────────────────
+// ArcGIS solo usa datos de tráfico (históricos y en vivo) cuando el travelMode
+// activo tiene `impedanceAttributeName: "TravelTime"` y la petición incluye
+// `startTime`. El travelMode es un objeto configurado por cada organización en
+// ArcGIS Online, así que NO se asume que "Driving Time" siempre trae tráfico:
+// se verifica la impedancia real del modo ya resuelto por elegirModo().
+const IMPEDANCIAS_CON_TRAFICO = new Set(['traveltime']);
+
+/** ¿El travelMode elegido usa una impedancia que factoriza tráfico? */
+function modoSoportaTrafico(travelMode) {
+  const impedancia = String(travelMode?.impedanceAttributeName || '').toLowerCase();
+  return IMPEDANCIAS_CON_TRAFICO.has(impedancia);
+}
+
 // ─── Normalización de la respuesta ──────────────────────────
 
 /**
  * Convierte la respuesta cruda de /solve al formato interno:
- *   { fuente, puntos: [[lat,lng]…], pasos: [{texto,distanciaM,duracionMin,maniobra}], distanciaM, duracionMin }
+ *   { fuente, puntos: [[lat,lng]…], pasos: [{texto,distanciaM,duracionMin,maniobra}], distanciaM, duracionMin,
+ *     traficoSolicitado, traficoAplicado, degradacionTrafico }
+ * @param {object} data Respuesta cruda de ArcGIS.
+ * @param {{traficoSolicitado?: boolean, traficoAplicado?: boolean, degradacionTrafico?: string|null}} [trafico]
+ * Estado de tráfico de esta resolución.
  */
-function normalizar(data) {
+function normalizar(data, {
+  traficoSolicitado = false,
+  traficoAplicado = false,
+  degradacionTrafico = null,
+} = {}) {
   capturarSiCorresponde('arcgis-crudo', data);
   const feature = data.routes?.features?.[0];
   if (!feature?.geometry?.paths?.length) {
@@ -204,7 +226,16 @@ function normalizar(data) {
   const distanciaM = Number(direccion?.summary?.totalLength) || 0;
   const duracionMin = Number(direccion?.summary?.totalTime) || 0;
 
-  const normalizado = { fuente: 'arcgis', puntos, pasos, distanciaM, duracionMin };
+  const normalizado = {
+    fuente: 'arcgis',
+    puntos,
+    pasos,
+    distanciaM,
+    duracionMin,
+    traficoSolicitado,
+    traficoAplicado,
+    degradacionTrafico,
+  };
   capturarSiCorresponde('arcgis-normalizado', normalizado);
   return normalizado;
 }
@@ -252,6 +283,20 @@ function construirParadas(origen, destino, nombreDestino) {
 async function solve(origen, destino, modo, nombreDestino) {
   const travelMode = await elegirModo(modo);
 
+  // Tráfico en vivo: solo en modo auto, y solo si el travelMode activo de esta
+  // organización ya factoriza tráfico (ver modoSoportaTrafico). El modo a pie
+  // nunca lleva tráfico (TRAFFIC-01). `traficoSolicitado` refleja la intención
+  // (el visitante pidió una ruta en auto); `traficoAplicado` refleja que la
+  // petición se envió con un travelMode compatible y ArcGIS resolvió sin error.
+  // No garantiza datos en vivo en cada calle. Los campos pueden diferir si la
+  // organización no configuró una impedancia de tráfico, y esa diferencia debe
+  // llegar sin ambigüedad hasta la respuesta normalizada.
+  const traficoSolicitado = modo === 'car';
+  const traficoAplicado = traficoSolicitado && modoSoportaTrafico(travelMode);
+  const degradacionTrafico = traficoSolicitado && !traficoAplicado
+    ? 'travel-mode-sin-impedancia-de-trafico'
+    : null;
+
   const params = {
     f: 'json',
     token: await obtenerToken(),
@@ -268,7 +313,14 @@ async function solve(origen, destino, modo, nombreDestino) {
     outSR: '4326',
   };
   if (travelMode) params.travelMode = JSON.stringify(travelMode);
+  if (traficoAplicado) {
+    // startTime="now" activa velocidades en vivo; startTimeIsUTC=false porque
+    // "now" se resuelve en el servidor de ArcGIS, no en una zona horaria local
+    // que tengamos que declarar aquí.
+    params.startTime = 'now';
+    params.startTimeIsUTC = 'false';
+  }
 
   const data = await pedirJson(`${NASERVER}/solve`, params);
-  return normalizar(data);
+  return normalizar(data, { traficoSolicitado, traficoAplicado, degradacionTrafico });
 }
