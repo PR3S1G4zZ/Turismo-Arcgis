@@ -33,6 +33,7 @@ tablas y —solo la primera vez— el **super-administrador** con las credencial
 | `PORT` | Puerto del backend (3001). |
 | `CORS_ORIGIN` | Orígenes permitidos, separados por comas. |
 | `PUBLIC_URL` | URL pública del backend (para armar las URLs de las imágenes). |
+| `ROUTING_HTTP_TIMEOUT_MS` | Tiempo máximo, en milisegundos, para cada llamada externa de ruteo antes de activar el respaldo. |
 | `DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_NAME` | Conexión MySQL. |
 | `JWT_SECRET` | Secreto para firmar los tokens. **Usa uno aleatorio y largo en producción.** |
 | `JWT_EXPIRES_IN` | Vigencia del token (ej. `8h`). |

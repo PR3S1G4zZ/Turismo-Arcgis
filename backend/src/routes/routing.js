@@ -3,7 +3,12 @@
 // habla directo con Esri: pide aquí y recibe la ruta ya normalizada.
 //
 // POST /api/rutas/resolver  { origen:{lat,lng}, destino:{lat,lng}, modo:'walk'|'car' }
-//   → { fuente, puntos:[[lat,lng]…], pasos:[…], distanciaM, duracionMin }
+//   → { fuente, puntos:[[lat,lng]…], pasos:[…], distanciaM, duracionMin,
+//       traficoSolicitado, traficoAplicado, degradacionTrafico }
+//   traficoSolicitado/traficoAplicado solo aplican a modo='car' con ArcGIS
+//   como proveedor; en cualquier otro caso (a pie, o respaldo OSRM) van en
+//   false explícitamente. degradacionTrafico explica por qué una ruta en auto
+//   no lleva tráfico; nunca se omite el estado ni se simula tráfico inexistente.
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler } from '../utils/http.js';

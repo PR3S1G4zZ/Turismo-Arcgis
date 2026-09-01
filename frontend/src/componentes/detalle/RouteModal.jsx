@@ -69,6 +69,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     recalcularAhora,
     vozActiva,
     setVozActiva,
+    wakeLock,
   } = useContext(NavegacionContext);
 
   const [step, setStep] = useState('transport'); // 'transport' | 'confirm' | 'tracking'
@@ -424,6 +425,11 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
             {!previsualizando && (
               <p className={`route-gps-status ${gpsConfiable ? 'route-gps-status--ok' : 'route-gps-status--warn'}`}>
                 <RiUserLocationLine /> {estadoUltimoFix}
+              </p>
+            )}
+            {!previsualizando && wakeLock?.necesitaAviso && (
+              <p className="route-gps-status route-gps-status--warn" role="status">
+                <RiErrorWarningLine /> {wakeLock.mensaje}
               </p>
             )}
 

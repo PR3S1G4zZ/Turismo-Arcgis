@@ -117,7 +117,9 @@ export const geocodeApi = {
 export const rutasApi = {
   /**
    * Ruta real por calles entre dos puntos.
-   * @returns {Promise<{fuente:string, puntos:Array<[number,number]>, pasos:Array, distanciaM:number, duracionMin:number}>}
+   * @returns {Promise<{fuente:string, puntos:Array<[number,number]>, pasos:Array, distanciaM:number,
+   * duracionMin:number, traficoSolicitado:boolean, traficoAplicado:boolean,
+   * degradacionTrafico:string|null}>}
    */
   resolver: (origen, destino, modo = 'walk', nombreDestino = '') =>
     request('/api/rutas/resolver', { method: 'POST', body: { origen, destino, modo, nombreDestino } }),

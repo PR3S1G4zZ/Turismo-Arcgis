@@ -5,7 +5,18 @@
 // AVISO: router.project-osrm.org es un servidor de DEMOSTRACIÓN, sin garantía de
 // disponibilidad y con límite de peticiones. Es válido para desarrollo y como
 // red de seguridad, pero la ruta de producción debe ser ArcGIS.
+import { capturarSiCorresponde } from './capturaGeometria.js';
+
 const BASE = 'https://router.project-osrm.org/route/v1';
+const ROUTING_TIMEOUT_DEFAULT_MS = 8000;
+
+function timeoutSignal() {
+  const configured = Number(process.env.ROUTING_HTTP_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configured) && configured > 0
+    ? configured
+    : ROUTING_TIMEOUT_DEFAULT_MS;
+  return AbortSignal.timeout(timeoutMs);
+}
 
 // OSRM no devuelve texto de instrucción, solo el tipo de maniobra. Se compone
 // la frase en español a partir de `maneuver` y del nombre de la vía.
@@ -69,9 +80,10 @@ export async function resolverRutaOsrm(origen, destino, modo) {
   const coords = `${origen.lng},${origen.lat};${destino.lng},${destino.lat}`;
   const url = `${BASE}/${perfil}/${coords}?overview=full&geometries=geojson&steps=true`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: timeoutSignal() });
   if (!res.ok) throw new Error(`OSRM respondió ${res.status}`);
   const data = await res.json();
+  capturarSiCorresponde('osrm-crudo', data);
   if (data.code !== 'Ok' || !data.routes?.length) {
     throw new Error(`OSRM no encontró ruta (${data.code || 'sin código'}).`);
   }
@@ -97,11 +109,19 @@ export async function resolverRutaOsrm(origen, destino, modo) {
 
   const distanciaM = Number(ruta.distance) || 0;
 
-  return {
+  const normalizado = {
     fuente: 'osrm',
     puntos,
     pasos,
     distanciaM,
     duracionMin: duracionDe(distanciaM, Number(ruta.duration)),
+    // OSRM no modela tráfico y nunca es el proveedor ArcGIS: ambos campos van
+    // en false siempre, para que el cliente vea la degradación sin ambigüedad
+    // en vez de omitir los campos (TRAFFIC-01).
+    traficoSolicitado: false,
+    traficoAplicado: false,
+    degradacionTrafico: modo === 'car' ? 'proveedor-osrm-sin-trafico' : null,
   };
+  capturarSiCorresponde('osrm-normalizado', normalizado);
+  return normalizado;
 }

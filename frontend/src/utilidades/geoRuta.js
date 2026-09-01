@@ -9,6 +9,12 @@
 const RADIO_TIERRA_M = 6371000;
 const GRADOS_A_RAD = Math.PI / 180;
 
+// Umbral común de movimiento: GPS y flecha deben tomar la misma decisión
+// sobre cuándo un rumbo representa dirección de marcha.
+export const VELOCIDAD_MIN_MS = 0.5;
+// Una lectura de brújula más vieja que esto deja de ser válida para la flecha.
+export const EDAD_MAXIMA_BRUJULA_MS = 1500;
+
 /** Distancia en metros entre dos puntos [lat, lng] (Haversine). */
 export function distanciaM(a, b) {
   const dLat = (b[0] - a[0]) * GRADOS_A_RAD;
@@ -48,6 +54,72 @@ export function suavizarRumbo(anterior, nuevo, factor = 0.35) {
   const x = Math.cos(ar) * (1 - factor) + Math.cos(nr) * factor;
   const y = Math.sin(ar) * (1 - factor) + Math.sin(nr) * factor;
   return ((Math.atan2(y, x) / GRADOS_A_RAD) + 360) % 360;
+}
+
+/** Normaliza un rumbo finito al intervalo [0, 360). */
+export function normalizarRumbo(grados) {
+  if (!Number.isFinite(grados)) return null;
+  return ((grados % 360) + 360) % 360;
+}
+
+/** Diferencia firmada más corta entre un rumbo y el bearing del viewport. */
+export function rotacionRelativaViewport(rumboElegido, bearingViewport) {
+  const rumboNormalizado = normalizarRumbo(rumboElegido);
+  const bearingNormalizado = normalizarRumbo(bearingViewport);
+  if (rumboNormalizado == null || bearingNormalizado == null) return null;
+  const diferencia = rumboNormalizado - bearingNormalizado;
+  if (diferencia > 180) return diferencia - 360;
+  if (diferencia < -180) return diferencia + 360;
+  return diferencia;
+}
+
+/** Devuelve la dirección del tramo local de una ruta preparada. */
+export function tangenteRuta(ruta, indice = 0) {
+  const puntos = ruta?.puntos;
+  if (!Array.isArray(puntos) || puntos.length < 2) return null;
+  const candidato = Number.isFinite(indice) ? Math.trunc(indice) : 0;
+  const inicio = Math.max(0, Math.min(candidato, puntos.length - 2));
+  const a = puntos[inicio];
+  const b = puntos[inicio + 1];
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) return null;
+  if (![...a, ...b].every(Number.isFinite)) return null;
+  return rumbo(a, b);
+}
+
+/**
+ * Elige el rumbo visual sin conocer cámara, React ni APIs del navegador.
+ * GPS manda al moverse; la brújula solo manda detenido si está fresca y
+ * autorizada; la tangente de ruta es el último respaldo.
+ */
+export function seleccionarRumbo({
+  moviendo,
+  rumboMovimiento,
+  gpsConfiable,
+  rumboBrujula,
+  permisoBrujula,
+  ultimaLecturaBrujula,
+  ahora,
+  maxEdadBrujulaMs = EDAD_MAXIMA_BRUJULA_MS,
+  rumboRespaldo,
+}) {
+  if (moviendo && gpsConfiable && Number.isFinite(rumboMovimiento)) {
+    return { rumbo: normalizarRumbo(rumboMovimiento), fuente: 'movimiento' };
+  }
+
+  const edadBrujula = Number.isFinite(ahora) ? ahora - ultimaLecturaBrujula : Infinity;
+  const brujulaFresca = Number.isFinite(rumboBrujula)
+    && Number.isFinite(ultimaLecturaBrujula)
+    && edadBrujula >= 0
+    && edadBrujula <= maxEdadBrujulaMs;
+  const permisoValido = ['concedido', 'no-requiere', 'granted'].includes(permisoBrujula);
+  if (!moviendo && permisoValido && brujulaFresca) {
+    return { rumbo: normalizarRumbo(rumboBrujula), fuente: 'brujula' };
+  }
+
+  if (Number.isFinite(rumboRespaldo)) {
+    return { rumbo: normalizarRumbo(rumboRespaldo), fuente: 'tangente-ruta' };
+  }
+  return null;
 }
 
 /** Convierte [lat, lng] a metros en un plano local centrado en `ref`. */

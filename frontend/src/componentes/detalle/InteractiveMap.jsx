@@ -13,6 +13,15 @@ import { RiNavigationLine, RiFocus3Line, RiCompass3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 import { useOrientacion } from '../../hooks/useOrientacion';
 import { mapaApi } from '../../utilidades/api';
+import {
+  EDAD_MAXIMA_BRUJULA_MS,
+  VELOCIDAD_MIN_MS,
+  normalizarRumbo,
+  rotacionRelativaViewport,
+  seleccionarRumbo,
+  tangenteRuta,
+} from '../../utilidades/geoRuta';
+import { marcar, medir, MARCAS, TRAMOS } from '../../utilidades/diagnosticoLatencias';
 import './InteractiveMap.css';
 
 // Zoom cercano mientras se navega, para ver la calle y la siguiente esquina.
@@ -90,7 +99,11 @@ function usePosicionAnimada(objetivo, duracionMs = 600) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     let inicio = null;
     const paso = (t) => {
-      if (inicio == null) inicio = t;
+      if (inicio == null) {
+        inicio = t;
+        marcar(MARCAS.MARCADOR_RENDER);
+        medir(TRAMOS.GPS_MARCADOR, MARCAS.GPS_ACEPTADO, MARCAS.MARCADOR_RENDER);
+      }
       const avance = Math.min(1, (t - inicio) / duracionMs);
       const suavizado = 1 - (1 - avance) ** 3; // ease-out cúbico
       const punto = {
@@ -128,8 +141,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     posicion: userPosition,
     posicionSimulada,
     gpsConfiable,
+    ultimaActualizacion,
     tramos,
     ruta,
+    avanceRuta,
     navegando,
     previsualizando,
     llegado,
@@ -147,6 +162,18 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
 
   const mapRef = useRef(null);
   const [mapListo, setMapListo] = useState(false);
+  const [bearingViewport, setBearingViewport] = useState(0);
+  const bearingViewportRef = useRef(0);
+
+  const actualizarBearingViewport = useCallback((evento) => {
+    const delEvento = evento?.viewState?.bearing;
+    const delMapa = mapRef.current?.getBearing?.();
+    const siguiente = Number.isFinite(delEvento) ? delEvento : delMapa;
+    const normalizado = normalizarRumbo(siguiente);
+    if (normalizado == null) return;
+    bearingViewportRef.current = normalizado;
+    setBearingViewport((anterior) => (anterior === normalizado ? anterior : normalizado));
+  }, []);
 
   const [coordinates, setCoordinates] = useState(() => {
     if (site.lat && site.lng) return [parseFloat(site.lat), parseFloat(site.lng)];
@@ -255,6 +282,41 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const mostrarTrayecto = showRoute && ruta && (previsualizando || navegando || llegado);
   const enSeguimiento = mostrarTrayecto && navegando && gpsConfiable && !posicionSimulada;
 
+  const moviendo = (userPosition?.speed ?? 0) > VELOCIDAD_MIN_MS;
+  const rumboElegido = seleccionarRumbo({
+    moviendo,
+    rumboMovimiento: userPosition?.heading,
+    gpsConfiable,
+    rumboBrujula: orientacion.heading,
+    permisoBrujula: orientacion.permiso,
+    ultimaLecturaBrujula: orientacion.ultimaActualizacion,
+    // En cada render provocado por GPS o brújula, el timestamp más reciente
+    // ofrece un reloj estable sin ejecutar una función impura durante render.
+    ahora: Math.max(
+      Number.isFinite(ultimaActualizacion) ? ultimaActualizacion : 0,
+      Number.isFinite(orientacion.ultimaActualizacion) ? orientacion.ultimaActualizacion : 0,
+    ),
+    maxEdadBrujulaMs: EDAD_MAXIMA_BRUJULA_MS,
+    rumboRespaldo: tangenteRuta(ruta, avanceRuta?.indice),
+  });
+  const rotacionFlecha = rumboElegido
+    ? rotacionRelativaViewport(rumboElegido.rumbo, bearingViewport) ?? 0
+    : 0;
+  const rumboVisual = rumboElegido?.rumbo ?? null;
+  const fuenteRumbo = rumboElegido?.fuente ?? null;
+
+  // El efecto se declara antes del retorno de carga para conservar el orden
+  // de hooks en todos los estados del mapa.
+  useEffect(() => {
+    if (!userPosition || rumboVisual == null) return;
+    marcar(MARCAS.FLECHA_RENDER);
+    medir(
+      TRAMOS.ORIENTACION_FLECHA,
+      fuenteRumbo === 'brujula' ? MARCAS.ORIENTACION_CAMBIO : MARCAS.GPS_ACEPTADO,
+      MARCAS.FLECHA_RENDER,
+    );
+  }, [userPosition, rumboVisual, fuenteRumbo, rotacionFlecha]);
+
   const mapStyle = useMemo(() => {
     if (token && !arcgisFallo) return estiloArcgis(isDark, token);
     return isDark ? CARTO_OSCURO : CARTO_CLARO;
@@ -281,6 +343,17 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   }, [enSeguimiento]);
 
   // ─── Cámara ───────────────────────────────────────────────
+  const manejarCargaMapa = useCallback((e) => {
+    setMapListo(true);
+    setMapError(null);
+    actualizarBearingViewport({ viewState: { bearing: e?.target?.getBearing?.() } });
+    const map = e?.target;
+    if (map?.cooperativeGestures) {
+      if (showRoute) map.cooperativeGestures.disable();
+      else map.cooperativeGestures.enable();
+    }
+  }, [actualizarBearingViewport, showRoute]);
+
   // Al navegar y con seguimiento activo: centra en el usuario, ROTA el mapa
   // hacia su rumbo (course-up) e inclina la cámara para el efecto 3D.
   useEffect(() => {
@@ -288,14 +361,36 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     const map = mapRef.current;
     if (!map) return;
     map.stop();
+    const bearingMapa = map.getBearing?.();
+    const rumboGps = normalizarRumbo(userPosition.heading);
+    const bearing = rumboGps != null
+      ? rumboGps
+      : Number.isFinite(bearingMapa)
+        ? bearingMapa
+        : bearingViewportRef.current;
     map.easeTo({
       center: [userPosition.lng, userPosition.lat],
-      bearing: Number.isFinite(userPosition.heading) ? userPosition.heading : map.getBearing(),
+      bearing,
       pitch: PITCH_NAVEGACION,
       zoom: Math.max(map.getZoom(), ZOOM_NAVEGACION),
       duration: 250,
     });
-  }, [mapListo, enSeguimiento, siguiendo, userPosition]);
+    actualizarBearingViewport({ viewState: { bearing } });
+    marcar(MARCAS.CAMARA_ACTUALIZADA);
+    medir(TRAMOS.GPS_CAMARA, MARCAS.GPS_ACEPTADO, MARCAS.CAMARA_ACTUALIZADA);
+  }, [mapListo, enSeguimiento, siguiendo, userPosition, actualizarBearingViewport]);
+
+  useEffect(() => {
+    if (orientacion.heading == null) return;
+    marcar(MARCAS.FLECHA_RENDER);
+    medir(TRAMOS.ORIENTACION_FLECHA, MARCAS.ORIENTACION_CAMBIO, MARCAS.FLECHA_RENDER);
+  }, [orientacion.heading]);
+
+  useEffect(() => {
+    if (!mostrarTrayecto || !tramos?.restante?.length) return;
+    marcar(MARCAS.RUTA_RENDERIZADA);
+    medir(TRAMOS.RESPUESTA_RUTA_RENDERIZADA, MARCAS.RESPUESTA_RECIBIDA, MARCAS.RUTA_RENDERIZADA);
+  }, [mostrarTrayecto, tramos]);
 
   // La vista informativa se inicializa una vez; las lecturas GPS posteriores no
   // deben pelear con quien explora el mapa. Al salir de navegación, además,
@@ -317,6 +412,11 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   // ahí la cámara de seguimiento acompaña al usuario.
   useEffect(() => {
     if (!mapListo || !previsualizando || !ruta?.puntos || ruta.puntos.length < 2) return;
+    // Captura dev-only del GeoJSON completo entregado a MapLibre (Fase 4 GEOM-01):
+    // inactiva salvo que el humano active window.__capturarGeometria a mano en DevTools.
+    if (import.meta.env.DEV && window.__capturarGeometria === true) {
+      console.log('[captura-geometria] geojson-maplibre', JSON.stringify(lineaGeoJSON(ruta.puntos)));
+    }
     const map = mapRef.current;
     if (!map) return;
     let oeste = Infinity, sur = Infinity, este = -Infinity, norte = -Infinity;
@@ -351,14 +451,6 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   //  - Navegando: el mapa ya gira (course-up), así que la flecha apunta arriba.
   //  - Caminando (hay velocidad): manda el rumbo del GPS (dirección de marcha).
   //  - Parado: manda la brújula (hacia dónde apuntas), como el cono de Google.
-  const moviendo = (userPosition?.speed ?? 0) > 0.7;
-  let rotacionFlecha = 0;
-  if (!enSeguimiento) {
-    if (moviendo && userPosition?.heading != null) rotacionFlecha = userPosition.heading;
-    else if (orientacion.heading != null) rotacionFlecha = orientacion.heading;
-    else if (userPosition?.heading != null) rotacionFlecha = userPosition.heading;
-  }
-
   // `posicionAnimada` puede tardar un render en ponerse al día justo cuando
   // `userPosition` pasa de null a un valor real (la transición la resuelve un
   // efecto, no el render); se exige también acá para no leer .lat de null.
@@ -374,19 +466,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           'CooperativeGesturesHandler.WindowsHelpText': 'Usa Ctrl + scroll para hacer zoom',
           'CooperativeGesturesHandler.MacHelpText': 'Usa ⌘ + scroll para hacer zoom',
         }}
-        onLoad={(e) => {
-          setMapListo(true);
-          setMapError(null);
-          // Gestos cooperativos en el mapa informativo embebido: con UN dedo la
-          // página hace scroll (no queda atrapado en el mapa) y con DOS dedos se
-          // mueve el mapa. En el de ruta a pantalla completa se deja el pan de un
-          // dedo. Se hace también imperativo por si la prop no se reenvía.
-          const map = e?.target;
-          if (map?.cooperativeGestures) {
-            if (showRoute) map.cooperativeGestures.disable();
-            else map.cooperativeGestures.enable();
-          }
-        }}
+        onLoad={manejarCargaMapa}
         initialViewState={{
           longitude: mapCenter[1],
           latitude: mapCenter[0],
@@ -394,6 +474,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         }}
         mapStyle={mapStyle}
         transformRequest={transformRequest}
+        onMove={actualizarBearingViewport}
         onError={(e) => {
           const status = e?.error?.status;
           const msg = e?.error?.message || String(e?.error || 'error desconocido');
