@@ -136,7 +136,16 @@ Plans:
   3. Existe UAT físico registrado en Android Chrome y, si hay dispositivo disponible, iPhone Safari — a pie y en auto, cubriendo rotonda, calles paralelas, ruta que se cruza a sí misma, pérdida de GPS y regreso desde segundo plano
   4. Ningún artefacto de test, instrumentación o UAT contiene coordenadas personales, recorridos completos ni tokens
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [x] 07-01-PLAN.md — Vitest backend + contrato POST /api/rutas/resolver (placeholders TRAFFIC-01)
+- [x] 07-02-PLAN.md — Tests frontend de rumbo/geometría/desvío actual/cámara + placeholders Wake Lock/NAV/RECALC
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 07-03-PLAN.md — UAT-CHECKLIST sin coordenadas + lint/build/test locales (UAT físico pendiente de dispositivos)
 
 ## Progress
 
@@ -151,4 +160,4 @@ Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Fidelidad de curvas y rotondas | 0/TBD | Not started | - |
 | 5. Mantener la pantalla activa | 0/TBD | Not started | - |
 | 6. Tráfico ArcGIS | 0/TBD | Not started | - |
-| 7. Endurecimiento y UAT | 0/TBD | Not started | - |
+| 7. Endurecimiento y UAT | 3/3 planes de suite/UAT-plantilla | Suite local verde; UAT físico PENDIENTE; Fases 1–6 aún incompletas | 2026-09-01 (parcial) |

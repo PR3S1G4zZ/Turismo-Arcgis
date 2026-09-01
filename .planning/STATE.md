@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
-current_phase: 1
-current_phase_name: Diagnóstico e instrumentación
+current_phase: 7
+current_phase_name: Endurecimiento y UAT
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-09-01T14:55:05.157Z"
+stopped_at: Phase 7 suite local complete; physical UAT pending
+last_updated: "2026-09-01T15:40:00.000Z"
 last_activity: 2026-09-01
-last_activity_desc: ROADMAP.md and STATE.md created; 15/15 v1 requirements mapped across 7 phases (Phase 1–7)
+last_activity_desc: Phase 7 hardening tests, UAT checklist, and local lint/build/test (Cursor worktree; Fases 1–6 still incomplete in this milestone copy)
 state_head: 38c1b461a8f2dafef208021687e87215b497209d
 progress:
   total_phases: 7
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-01)
 
 **Core value:** Que la navegación en tiempo real sea confiable y responsiva — la flecha, la cámara y el progreso deben reflejar la posición y el rumbo reales del visitante sin retraso perceptible ni orientaciones incorrectas, manteniendo la geometría de ArcGIS como fuente de verdad.
-**Current focus:** Phase 1 — Diagnóstico e instrumentación
+**Current focus:** Phase 7 — Endurecimiento y UAT (este worktree). Fases 1–6 siguen incompletas en el ROADMAP de esta copia.
 
 ## Current Position
 
-Phase: 1 (Diagnóstico e instrumentación) — READY TO EXECUTE
-Plan: 0 of TBD in current phase
-Status: Ready to execute
-Last activity: 2026-09-01 — ROADMAP.md and STATE.md created; 15/15 v1 requirements mapped across 7 phases (Phase 1–7)
+Phase: 7 (Endurecimiento y UAT) — SUITE LOCAL HECHA; UAT FÍSICO PENDIENTE
+Plan: 3 of 3 hardening plans (placeholders for missing WAKE/TRAFFIC/NAV/RECALC)
+Status: Partial — HARDEN-01 automated subset green; HARDEN-02 not field-executed
+Last activity: 2026-09-01 — Vitest backend/frontend, UAT checklist, lint+build
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] ~14% (solo endurecimiento local; milestone no cerrado)
 
 ## Performance Metrics
 
@@ -85,6 +85,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-01T14:55:05.143Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-endurecimiento-y-uat/07-CONTEXT.md
+Last session: 2026-09-01T15:40:00.000Z
+Stopped at: Phase 7 local suite + UAT template; physical devices still required
+Resume file: .planning/phases/07-endurecimiento-y-uat/UAT-CHECKLIST.md
