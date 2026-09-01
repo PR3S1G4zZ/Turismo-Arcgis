@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { resolver, precisionArgs } = vi.hoisted(() => ({ resolver: vi.fn(), precisionArgs: [] }));
 let gps;
@@ -13,6 +13,7 @@ vi.mock('./useGeolocation', () => ({
 }));
 
 import { useNavegacion } from './useNavegacion';
+import { TRAMOS } from '../utilidades/diagnosticoLatencias';
 
 const route = {
   puntos: [[0, 0], [0.001, 0]],
@@ -71,5 +72,28 @@ describe('useNavegacion', () => {
     rerender();
     expect(result.current.estado).toBe('previsualizando');
     expect(precisionArgs.at(-1)).toEqual({ precisionAlta: false });
+  });
+
+  describe('instrumentación de diagnóstico (Fase 1, DIAG-01)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      performance.clearMarks();
+      performance.clearMeasures();
+    });
+
+    it('mide el tramo solicitud→respuesta ArcGIS al resolver la ruta', async () => {
+      const measureSpy = vi.spyOn(performance, 'measure');
+      const { result } = renderHook(() => useNavegacion());
+
+      act(() => result.current.iniciar(site, 'walk'));
+
+      await waitFor(() => expect(result.current.estado).toBe('navegando'));
+
+      expect(measureSpy).toHaveBeenCalledWith(
+        TRAMOS.SOLICITUD_RESPUESTA_ARCGIS,
+        expect.any(String),
+        expect.any(String),
+      );
+    });
   });
 });
