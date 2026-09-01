@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { resolver, precisionArgs } = vi.hoisted(() => ({ resolver: vi.fn(), precisionArgs: [] }));
 let gps;
@@ -13,6 +13,7 @@ vi.mock('./useGeolocation', () => ({
 }));
 
 import { useNavegacion } from './useNavegacion';
+import { MARCAS, TRAMOS } from '../utilidades/diagnosticoLatencias';
 
 const route = {
   puntos: [[0, 0], [0.001, 0]],
@@ -71,5 +72,64 @@ describe('useNavegacion', () => {
     rerender();
     expect(result.current.estado).toBe('previsualizando');
     expect(precisionArgs.at(-1)).toEqual({ precisionAlta: false });
+  });
+
+  describe('instrumentación de diagnóstico (Fase 1, DIAG-01)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      performance.clearMarks();
+      performance.clearMeasures();
+    });
+
+    it('mide el tramo solicitud→respuesta ArcGIS al resolver la ruta', async () => {
+      const measureSpy = vi.spyOn(performance, 'measure');
+      const { result } = renderHook(() => useNavegacion());
+
+      act(() => result.current.iniciar(site, 'walk'));
+
+      await waitFor(() => expect(result.current.estado).toBe('navegando'));
+
+      expect(measureSpy).toHaveBeenCalledWith(
+        TRAMOS.SOLICITUD_RESPUESTA_ARCGIS,
+        expect.any(String),
+        expect.any(String),
+      );
+    });
+
+    it('marca desvio:detectado una sola vez por ciclo y mide diag:desvio-solicitud al recalcular', async () => {
+      const markSpy = vi.spyOn(performance, 'mark');
+      const measureSpy = vi.spyOn(performance, 'measure');
+      const { result, rerender } = renderHook(() => useNavegacion());
+
+      act(() => result.current.iniciar(site, 'walk'));
+      await waitFor(() => expect(result.current.estado).toBe('navegando'));
+      resolver.mockClear();
+      markSpy.mockClear();
+      measureSpy.mockClear();
+
+      // Salta ESPERA_ENTRE_RECALCULOS_MS (15 s) para que el recálculo no
+      // quede bloqueado por el temporizador: el test corre en milisegundos reales.
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20000);
+
+      // Posición fuera de ruta (~46 m de desviación, dentro del segmento de
+      // la ruta mockeada) repetida 3 veces: umbral de recálculo del hook.
+      const posicionFueraDeRuta = { lat: 0.0005, lng: 0.00042, accuracy: 10 };
+      gps = { ...gps, position: posicionFueraDeRuta };
+      rerender();
+      gps = { ...gps, position: { ...posicionFueraDeRuta } };
+      rerender();
+      gps = { ...gps, position: { ...posicionFueraDeRuta } };
+      rerender();
+
+      await waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+
+      const llamadasDesvio = markSpy.mock.calls.filter((args) => args[0] === MARCAS.DESVIO_DETECTADO);
+      expect(llamadasDesvio).toHaveLength(1);
+      expect(measureSpy).toHaveBeenCalledWith(
+        TRAMOS.DESVIO_SOLICITUD,
+        MARCAS.DESVIO_DETECTADO,
+        MARCAS.RECALCULO_SOLICITADO,
+      );
+    });
   });
 });
