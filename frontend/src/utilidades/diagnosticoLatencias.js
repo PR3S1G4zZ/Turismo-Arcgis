@@ -59,7 +59,6 @@ export function medir(tramo, inicio, fin) {
   if (!import.meta.env.DEV) return;
   try {
     const medida = performance.measure(tramo, inicio, fin);
-    // eslint-disable-next-line no-console
     console.debug('[diag]', tramo, Math.round(medida.duration), 'ms');
   } catch {
     // Marca de inicio/fin ausente: se ignora, no es una condición de error real.

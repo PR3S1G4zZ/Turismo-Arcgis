@@ -256,10 +256,16 @@ export function useNavegacion() {
     // Detección de desvío y recálculo automático.
     if (ubicacion.desviacionM > UMBRAL_DESVIO_M) {
       lecturasFueraRef.current += 1;
+      // Tramo 4 (desvío->solicitud): solo la primera lectura que cruza el
+      // umbral marca el inicio del ciclo -- las siguientes lecturas fuera de
+      // ruta del mismo ciclo no deben re-marcar.
+      if (lecturasFueraRef.current === 1) marcar(MARCAS.DESVIO_DETECTADO);
       const suficientesLecturas = lecturasFueraRef.current >= LECTURAS_PARA_RECALCULAR;
       const pasoElTiempo = Date.now() - ultimoCalculoRef.current > ESPERA_ENTRE_RECALCULOS_MS;
       if (suficientesLecturas && pasoElTiempo) {
         lecturasFueraRef.current = 0;
+        marcar(MARCAS.RECALCULO_SOLICITADO);
+        medir(TRAMOS.DESVIO_SOLICITUD, MARCAS.DESVIO_DETECTADO, MARCAS.RECALCULO_SOLICITADO);
         calcular(position, destino, modo, true);
       }
     } else {
