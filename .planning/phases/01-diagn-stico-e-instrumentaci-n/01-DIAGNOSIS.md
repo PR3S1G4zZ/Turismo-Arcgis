@@ -41,6 +41,27 @@ Instrumentación pendiente de ejecutar en dispositivo físico (Plan 01-05). Las 
 
 Nota: si hay iPhone disponible (confirmado por el usuario en `01-CONTEXT.md`), Plan 01-05 debe repetir la captura y añadir filas equivalentes por dispositivo. Ninguna medición registra coordenadas (D-04, `01-CONTEXT.md`).
 
+## Instrucciones de captura en dispositivo físico
+
+La instrumentación solo existe en el bundle de desarrollo: `import.meta.env.DEV` debe ser `true` para que se registren las marcas y medidas. El despliegue normal usa `npm run build` en modo producción, que mantiene la aplicación sin esta instrumentación. Para una sesión puntual:
+
+1. Generar el build de captura desde `frontend/` con `npx vite build --mode development`. Este build ya fue validado localmente en este worktree y produce `frontend/dist/`.
+2. Desplegar ese contenido al entorno HTTPS de staging existente siguiendo el proceso habitual de despliegue, sustituyendo únicamente el comando de build por el del paso 1 para esa sesión.
+3. En Android, abrir Chrome, navegar a la URL de staging, conectar el teléfono por USB y abrir `chrome://inspect` en Chrome de escritorio para obtener la consola remota de esa pestaña. Si hay iPhone disponible, conectarlo a un Mac y usar Safari → Develop → `[dispositivo]` → `[pestaña]` para abrir la consola remota.
+4. En la aplicación, abrir el detalle de un sitio, pulsar **Fijar Ruta de Destino** y aceptar el permiso de ubicación. La primera fijación y el cálculo de la ruta disparan los tramos GPS → marcador, GPS → cámara, solicitud → respuesta ArcGIS y respuesta → ruta renderizada.
+5. Empezar a caminar o conducir siguiendo la ruta. Dejar que el teléfono gire libremente en la mano en algún momento para provocar lecturas de brújula y el tramo orientación → flecha. Después, desviarse deliberadamente más de 45 metros de la ruta durante unos segundos para provocar el recálculo y el tramo desvío → solicitud.
+6. Repetir los pasos 4 y 5 un par de veces si es posible, para acumular varias mediciones de cada tramo.
+7. En la consola remota, ejecutar `window.__diagnosticoLatencias.resumen()` y copiar únicamente el objeto resultante. Su salida contiene nombres de tramo y números (`count`, `avgMs`, `minMs`, `maxMs`), no coordenadas.
+8. Inmediatamente después de terminar la captura, volver a desplegar el build de producción normal con `npm run build` (sin `--mode`) en el mismo entorno de staging, para no dejar la instrumentación de desarrollo expuesta de forma permanente.
+
+El único resultado que debe reportarse aquí es la salida numérica de `window.__diagnosticoLatencias.resumen()` —o una transcripción de sus seis claves y números—. No enviar coordenadas, recorridos, capturas de pantalla del mapa o la ruta, ni tokens.
+
+### Estado del checkpoint físico
+
+La captura física todavía no se ha ejecutado desde este worktree. Quedan pendientes para el humano: caminar o conducir con al menos un Android real, leer la consola remota, reportar los seis grupos numéricos y volver a desplegar el build de producción al finalizar. El iPhone es opcional.
+
+Por tanto, las filas de la tabla anterior siguen marcadas como `pendiente`, no se han agregado números ni se ha hecho una clasificación final de causa raíz. Cualquier tramo que no aparezca en una salida posterior de `resumen()` debe conservarse como **sin datos — pendiente de una sesión de captura adicional**; no debe estimarse ni completarse con datos de escritorio.
+
 ---
 
 ## Causa raiz por retraso
