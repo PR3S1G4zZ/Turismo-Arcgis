@@ -70,7 +70,7 @@ export function medir(tramo, inicio, fin) {
  * timeline por tramo, y lo limpia después de leer para no dejarlo crecer sin
  * límite durante una sesión larga de captura en dispositivo físico
  * (ver Plan 01-05).
- * @returns {Object<string, {count:number, avgMs:number, minMs:number, maxMs:number}>}
+ * @returns {Object<string, {count:number, avgMs:number, minMs:number, maxMs:number, p95Ms:number}>}
  */
 export function resumen() {
   const entradas = performance
@@ -80,11 +80,20 @@ export function resumen() {
   const agrupado = {};
   for (const entrada of entradas) {
     if (!agrupado[entrada.name]) {
-      agrupado[entrada.name] = { count: 0, avgMs: 0, minMs: Infinity, maxMs: -Infinity, _sumaMs: 0 };
+      agrupado[entrada.name] = {
+        count: 0,
+        avgMs: 0,
+        minMs: Infinity,
+        maxMs: -Infinity,
+        p95Ms: 0,
+        _sumaMs: 0,
+        _duraciones: [],
+      };
     }
     const g = agrupado[entrada.name];
     g.count += 1;
     g._sumaMs += entrada.duration;
+    g._duraciones.push(entrada.duration);
     g.minMs = Math.min(g.minMs, entrada.duration);
     g.maxMs = Math.max(g.maxMs, entrada.duration);
   }
@@ -94,7 +103,11 @@ export function resumen() {
     g.avgMs = Math.round((g._sumaMs / g.count) * 100) / 100;
     g.minMs = Math.round(g.minMs * 100) / 100;
     g.maxMs = Math.round(g.maxMs * 100) / 100;
+    const ordenadas = [...g._duraciones].sort((a, b) => a - b);
+    const indiceP95 = Math.max(0, Math.ceil(ordenadas.length * 0.95) - 1);
+    g.p95Ms = Math.round(ordenadas[indiceP95] * 100) / 100;
     delete g._sumaMs;
+    delete g._duraciones;
   }
 
   performance.clearMarks();

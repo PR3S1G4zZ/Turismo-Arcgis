@@ -4,7 +4,7 @@ plan: 03
 subsystem: mapa-flecha-camara
 tags: [maplibre, camera-follow, arrow, diagnostics]
 key-files: [frontend/src/componentes/detalle/InteractiveMap.jsx, frontend/src/componentes/detalle/InteractiveMap.test.jsx]
-metrics: { tests: 11, commit: 9d0bd76 }
+metrics: { tests: 16, commit: 9d0bd76 }
 ---
 
 # Resumen 02-03
@@ -12,8 +12,9 @@ metrics: { tests: 11, commit: 9d0bd76 }
 La flecha se calcula con el rumbo elegido relativo al bearing real del
 viewport, incluso después de drag/rotate/pitch. `siguiendo` solo controla
 `easeTo`; el bearing se actualiza desde `onLoad`/`onMove` y el recenter vuelve a
-activar únicamente la cámara. Se conservaron las marcas dev-only y se
-añadieron mediciones de marcador, flecha y cámara sin coordenadas ni tokens.
+activar únicamente la cámara. Se conservaron las marcas dev-only, se
+añadieron mediciones de marcador, flecha y cámara sin coordenadas ni tokens, y
+`resumen()` ahora expone `p95Ms` para comprobar NAV-04.
 
 ## Commits
 
@@ -27,4 +28,4 @@ None.
 
 ## Self-Check
 
-PASSED — suite de `InteractiveMap`: 11/11.
+PASSED — suites de `InteractiveMap` y diagnóstico: 16/16.

@@ -46,7 +46,7 @@ describe('diagnosticoLatencias', () => {
     expect(() => medir(TRAMOS.GPS_MARCADOR, 'no-existe-inicio', 'no-existe-fin')).not.toThrow();
   });
 
-  it('resumen() agrupa measures diag:* en {count, avgMs, minMs, maxMs} y limpia el timeline', () => {
+  it('resumen() agrupa measures diag:* con p95 y limpia el timeline', () => {
     import.meta.env.DEV = true;
     performance.mark('a1');
     performance.mark('a2');
@@ -58,8 +58,17 @@ describe('diagnosticoLatencias', () => {
     const resultado = resumen();
 
     expect(Object.keys(resultado)).toEqual([TRAMOS.GPS_MARCADOR]);
-    expect(Object.keys(resultado[TRAMOS.GPS_MARCADOR]).sort()).toEqual(['avgMs', 'count', 'maxMs', 'minMs']);
+    expect(Object.keys(resultado[TRAMOS.GPS_MARCADOR]).sort()).toEqual([
+      'avgMs',
+      'count',
+      'maxMs',
+      'minMs',
+      'p95Ms',
+    ]);
     expect(resultado[TRAMOS.GPS_MARCADOR].count).toBe(2);
+    expect(resultado[TRAMOS.GPS_MARCADOR].p95Ms).toBeGreaterThanOrEqual(
+      resultado[TRAMOS.GPS_MARCADOR].minMs,
+    );
     expect(performance.getEntriesByType('measure')).toHaveLength(0);
   });
 

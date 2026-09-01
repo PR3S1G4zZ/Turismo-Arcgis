@@ -9,7 +9,7 @@ requirements: [NAV-01, NAV-02, NAV-03, NAV-04]
 
 ## Automatizada
 
-- `npm.cmd test`: 8 archivos, 49 tests, 0 fallos.
+- `npm.cmd test`: 8 archivos, 50 tests, 0 fallos.
 - `npm.cmd run lint`: 0 errores.
 - `npm.cmd run build`: terminó con código 0; conserva únicamente el warning
   existente de chunks grandes de Vite.
