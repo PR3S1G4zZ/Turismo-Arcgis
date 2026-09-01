@@ -115,6 +115,10 @@ describe('useGeolocation', () => {
     const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
 
     await waitFor(() => expect(success).toBeTypeOf('function'));
+    // Limpia cualquier llamada residual de montajes de tests previos que
+    // sigan vivos (este archivo no desmonta los renderHook entre tests):
+    // solo interesan las marcas producidas por ESTA fijación.
+    markSpy.mockClear();
     act(() => success(fix({ timestamp: now, latitude: 0, longitude: 0 })));
     await waitFor(() => expect(result.current.gpsConfiable).toBe(true));
 
@@ -128,6 +132,7 @@ describe('useGeolocation', () => {
     const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
 
     await waitFor(() => expect(success).toBeTypeOf('function'));
+    markSpy.mockClear();
     act(() => success(fix({ timestamp: now, accuracy: 51 })));
 
     await waitFor(() => expect(result.current.gpsConfiable).toBe(false));

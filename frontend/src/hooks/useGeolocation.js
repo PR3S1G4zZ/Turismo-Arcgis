@@ -1,6 +1,7 @@
 // src/hooks/useGeolocation.js
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { distanciaM, rumbo, suavizarRumbo } from '../utilidades/geoRuta';
+import { marcar, MARCAS } from '../utilidades/diagnosticoLatencias';
 
 // Coordenadas del Parque Principal de Itagüí como último recurso (solo si el
 // usuario deniega el permiso o el GPS no está disponible).
@@ -143,6 +144,13 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
       }
       ultimaCoordRef.current = { lat: latitude, lng: longitude };
       ultimoTimestampRef.current = timestamp;
+
+      // Marca de arranque compartida por los tramos 1 (GPS->marcador) y 3
+      // (GPS->cámara) del diagnóstico de latencias (Fase 1, DIAG-01): solo
+      // fijaciones que llegan hasta aquí (esConfiable=true) la disparan.
+      // Los extremos finales de ambos tramos se emparejan en
+      // InteractiveMap.jsx (Plan 01-04).
+      marcar(MARCAS.GPS_ACEPTADO);
 
       // Navegación y cámara consumen la fijación aceptada sin interpolación.
       // La interpolación pertenece exclusivamente al marcador visual del mapa.
