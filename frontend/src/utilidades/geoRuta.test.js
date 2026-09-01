@@ -13,6 +13,9 @@ import {
   tangenteRuta,
 } from './geoRuta';
 
+/** ~1 m en grados, cerca del ecuador (111 320 m por grado). Solo geometría sintética. */
+const M = 1 / 111320;
+
 describe('geoRuta', () => {
   it('projects a position onto the correct route segment', () => {
     const ruta = prepararRuta({ puntos: [[0, 0], [0.001, 0]], pasos: [] });
@@ -160,5 +163,39 @@ describe('geoRuta', () => {
       })).toBeNull();
       expect(tangenteRuta({ puntos: [[0, 0]] }, 0)).toBeNull();
     });
+  });
+
+  it('keeps every vertex when preparing a polyline (no silent simplification)', () => {
+    const puntos = [[0, 0], [10 * M, 0], [10 * M, 10 * M], [0, 10 * M], [0, 20 * M]];
+    const ruta = prepararRuta({ puntos, pasos: [] });
+    expect(ruta.puntos).toHaveLength(5);
+    expect(ruta.puntos).toEqual(puntos);
+    expect(ruta.largoTotalM).toBeGreaterThan(39);
+  });
+
+  it('stays on the near arc of a synthetic roundabout instead of jumping across the diameter', () => {
+    const puntos = [];
+    const n = 36;
+    const r = 40 * M;
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * 2 * Math.PI;
+      puntos.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    const ruta = prepararRuta({ puntos, pasos: [] });
+    const angulo = 0.3;
+    const pos = [r * Math.cos(angulo), r * Math.sin(angulo)];
+    const ubicacion = localizarEnRuta(ruta, pos, 0);
+
+    expect(ubicacion.desviacionM).toBeLessThan(3);
+    expect(ubicacion.indice).toBeLessThan(8);
+    expect(ubicacion.recorridoM).toBeLessThan(ruta.largoTotalM / 4);
+  });
+
+  it('reports large deviation when the fix sits on a parallel street about 50 m away', () => {
+    const puntos = [[0, 0], [0, 80 * M]];
+    const ruta = prepararRuta({ puntos, pasos: [] });
+    const ubicacion = localizarEnRuta(ruta, [50 * M, 40 * M], 0);
+    expect(ubicacion.desviacionM).toBeGreaterThan(45);
+    expect(ubicacion.desviacionM).toBeLessThan(55);
   });
 });
