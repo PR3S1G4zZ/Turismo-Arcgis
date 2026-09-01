@@ -15,6 +15,8 @@ let mapProps;
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('./InteractiveMap.css', () => ({}));
 
+const orientationState = vi.hoisted(() => ({ heading: null }));
+
 vi.mock('react-map-gl/maplibre', async () => {
   const React = await import('react');
   return {
@@ -34,7 +36,12 @@ vi.mock('react-map-gl/maplibre', async () => {
 });
 
 vi.mock('../../hooks/useOrientacion', () => ({
-  useOrientacion: () => ({ heading: null, necesitaPermiso: false, permiso: 'concedido', activar: vi.fn() }),
+  useOrientacion: () => ({
+    heading: orientationState.heading,
+    necesitaPermiso: false,
+    permiso: 'concedido',
+    activar: vi.fn(),
+  }),
 }));
 
 vi.mock('../../utilidades/api', () => ({ mapaApi: { token: vi.fn().mockResolvedValue('token') } }));
@@ -72,6 +79,7 @@ describe('InteractiveMap camera lifecycle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    orientationState.heading = null;
     map.getZoom.mockReturnValue(16);
     map.getBearing.mockReturnValue(23);
   });
@@ -138,5 +146,93 @@ describe('InteractiveMap camera lifecycle', () => {
     );
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ bearing: 0, pitch: 0 })));
+  });
+});
+
+describe('InteractiveMap latency instrumentation', () => {
+  let markSpy;
+  let measureSpy;
+
+  beforeEach(() => {
+    markSpy = vi.spyOn(performance, 'mark');
+    measureSpy = vi.spyOn(performance, 'measure').mockReturnValue({ duration: 1 });
+    orientationState.heading = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('measures accepted GPS to the live camera update', async () => {
+    renderMap(navigation());
+
+    await waitFor(() => expect(measureSpy).toHaveBeenCalledWith(
+      'diag:gps-camara',
+      'gps:aceptado',
+      'camara:actualizada',
+    ));
+    expect(markSpy).toHaveBeenCalledWith('camara:actualizada');
+  });
+
+  it('measures an accepted orientation change to arrow rendering', async () => {
+    orientationState.heading = 45;
+    renderMap(navigation());
+
+    await waitFor(() => expect(measureSpy).toHaveBeenCalledWith(
+      'diag:orientacion-flecha',
+      'orientacion:cambio',
+      'flecha:render',
+    ));
+    expect(markSpy).toHaveBeenCalledWith('flecha:render');
+  });
+
+  it('measures GPS to the first marker animation frame once per animation cycle', async () => {
+    const view = renderMap(navigation());
+
+    await waitFor(() => expect(measureSpy).toHaveBeenCalledWith(
+      'diag:gps-marcador',
+      'gps:aceptado',
+      'marcador:render-inicio',
+    ));
+    measureSpy.mockClear();
+    markSpy.mockClear();
+
+    view.rerender(
+      <NavegacionContext.Provider value={navigation({ posicion: { ...position, lat: 6.172 } })}>
+        <InteractiveMap site={site} showRoute />
+      </NavegacionContext.Provider>
+    );
+
+    await waitFor(() => expect(measureSpy).toHaveBeenCalledWith(
+      'diag:gps-marcador',
+      'gps:aceptado',
+      'marcador:render-inicio',
+    ));
+    expect(measureSpy.mock.calls.filter(([name]) => name === 'diag:gps-marcador')).toHaveLength(1);
+    expect(markSpy).toHaveBeenCalledWith('marcador:render-inicio');
+  });
+
+  it('measures an arriving route to its rendered remaining geometry', async () => {
+    renderMap(navigation());
+
+    await waitFor(() => expect(measureSpy).toHaveBeenCalledWith(
+      'diag:respuesta-ruta-renderizada',
+      'respuesta:recibida',
+      'ruta:renderizada',
+    ));
+    expect(markSpy).toHaveBeenCalledWith('ruta:renderizada');
+  });
+
+  it('does not mark route rendering for an informational map', async () => {
+    renderMap(navigation(), { showRoute: false });
+
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(markSpy).not.toHaveBeenCalledWith('ruta:renderizada');
+    expect(measureSpy).not.toHaveBeenCalledWith(
+      'diag:respuesta-ruta-renderizada',
+      'respuesta:recibida',
+      'ruta:renderizada',
+    );
   });
 });
