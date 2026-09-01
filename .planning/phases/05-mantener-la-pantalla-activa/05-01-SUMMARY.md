@@ -18,7 +18,7 @@ affects: [07-endurecimiento-y-uat]
 actuals:
   tokens: 12000
   tasks: 3
-  commits: 3
+  commits: 4
 
 # Tech tracking
 tech-stack:
@@ -113,6 +113,8 @@ status: complete
    - `570d6b1` feat(05): connect Wake Lock to navigation lifecycle
 3. **Task 3: aviso discreto de UI**
    - `570d6b1` feat(05): connect Wake Lock to navigation lifecycle
+4. **Hardening detectado en revisión: cleanup de release externo y API defectuosa**
+   - `f4fff36` fix(05): clean released Wake Lock listeners safely
 
 Documentación y plan:
 
@@ -126,6 +128,7 @@ Documentación y plan:
 1. El agente ejecutor delegado no devolvió señal de finalización ni cambios tras sus ventanas de ejecución; se cerró de forma controlada y el plan se completó localmente para no dejar la fase bloqueada. No hubo cambios concurrentes que integrar.
 2. ESLint rechazó actualizaciones de estado sincrónicas dentro del efecto. Se ajustó el inicio de la solicitud al microtask siguiente y se derivó el estado expuesto inactivo cuando la demanda es falsa; esto conserva el ciclo y evita renders en cascada.
 3. Las pruebas existentes de `useNavegacion` mantenían árboles `renderHook` entre casos; se añadió `cleanup()` para aislar el nuevo registro de demanda Wake Lock y evitar falsos positivos.
+4. La revisión local endureció el cleanup del listener cuando el sistema libera el sentinel y clasificó como no soportada una lectura defectuosa de `navigator.wakeLock`; el comportamiento sigue siendo no fatal.
 
 Impacto: ninguna desviación cambia el proveedor de mapas, GPS, ruteo, geometría, voz o umbrales de recálculo.
 
