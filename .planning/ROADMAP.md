@@ -28,7 +28,13 @@ Este milestone endurece la navegación en tiempo real ya existente (GPS, flecha,
   1. Existe una tabla de latencias (instrumentación solo de desarrollo, sin coordenadas registradas) con las 6 mediciones internas por separado: GPS aceptado→marcador, orientación→rotación de flecha, GPS aceptado→actualización de cámara, desvío detectado→solicitud de recálculo, solicitud→respuesta ArcGIS, respuesta→ruta renderizada — medida en al menos un Android real (iPhone si hay dispositivo disponible)
   2. Existe un informe de causa raíz por cada retraso identificado, clasificándolo como interno al código (umbral de 3 lecturas, espera entre recálculos, suavizado de rumbo, interpolación de marcador, duración de `easeTo`) o dependiente del sensor/plataforma (frecuencia real de `watchPosition`, disponibilidad de `coords.heading`, diferencias Android/iOS/desktop)
   3. Existe una auditoría documentada de qué síntomas reportados ya quedaron resueltos por PR #5 antes de escribir código nuevo, evitando redescubrir o reimplementar fixes ya mergeados
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 01-01-PLAN.md — Utilidad diagnosticoLatencias + tracer del tramo "solicitud→respuesta ArcGIS" + tramo "desvío→solicitud"
+- [ ] 01-02-PLAN.md — Auditoría documental PR #5 (tabla síntoma→commit→estado) + esqueleto de 01-DIAGNOSIS.md
+- [ ] 01-03-PLAN.md — Marcas de arranque GPS/orientación (useGeolocation.js, useOrientacion.js)
+- [ ] 01-04-PLAN.md — Extremos finales de latencia en InteractiveMap.jsx (marcador, flecha, cámara, ruta renderizada)
+- [ ] 01-05-PLAN.md — Build de captura + instrucciones físicas + checkpoint humano + síntesis del informe
 
 ### Phase 2: Flecha, rumbo y cámara desacoplados
 **Goal**: Modelo explícito con estados independientes — posición GPS, rumbo de movimiento, rumbo de brújula, rotación de la flecha, bearing del mapa, seguimiento de cámara activo/pausado — donde un gesto del usuario pausa únicamente la cámara, nunca el GPS, el progreso, el recálculo ni la orientación de la flecha.
