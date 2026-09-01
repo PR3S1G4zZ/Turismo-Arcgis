@@ -25,7 +25,7 @@ Que la navegación en tiempo real sea confiable y responsiva: la flecha, la cám
 - ✓ Recálculo automático por desvío (umbral 45 m, 3 lecturas, espera 15 s) — existente
 - ✓ Cámara course-up con pausa por gesto del usuario y control de recentrado (`enSeguimiento` / `siguiendo` ya separados) — existente
 - ✓ Credencial de ArcGIS nunca expuesta al frontend (proxy exclusivo por backend) — existente
-- ✓ Ciclo previo de fixes de fiabilidad de navegación ya mergeado a `main` (rama `codex/map-navigation-reliability`, PR #5): latencia GPS, ciclo de vida de cámara, bearing sin heading GPS, estado GPS obsoleto — existente, alcance exacto por auditar en Fase 0
+- ✓ Ciclo previo de fixes de fiabilidad de navegación ya mergeado a `main` (rama `codex/map-navigation-reliability`, PR #5): latencia GPS, ciclo de vida de cámara, bearing sin heading GPS, estado GPS obsoleto — existente, alcance exacto por auditar en Fase 1
 
 ### Active
 
@@ -55,7 +55,7 @@ Que la navegación en tiempo real sea confiable y responsiva: la flecha, la cám
 
 ## Context
 
-- Brownfield con historial reciente relevante: la rama `codex/map-navigation-reliability` (PR #5, ya mergeada a `main`) atacó síntomas muy similares a los de este milestone (latencia GPS, ciclo de vida de cámara, bearing sin heading, estado GPS obsoleto) mediante commits `fix: make GPS navigation state trustworthy`, `fix: remove GPS navigation lag`, `fix: stabilize map camera lifecycle`, `fix: preserve bearing without GPS heading`, `fix: clarify stale GPS route status`, más un fix adicional ya en `main` (`677a933`) sobre `localizarEnRuta`. Fase 0 debe partir de esa auditoría, no de cero.
+- Brownfield con historial reciente relevante: la rama `codex/map-navigation-reliability` (PR #5, ya mergeada a `main`) atacó síntomas muy similares a los de este milestone (latencia GPS, ciclo de vida de cámara, bearing sin heading, estado GPS obsoleto) mediante commits `fix: make GPS navigation state trustworthy`, `fix: remove GPS navigation lag`, `fix: stabilize map camera lifecycle`, `fix: preserve bearing without GPS heading`, `fix: clarify stale GPS route status`, más un fix adicional ya en `main` (`677a933`) sobre `localizarEnRuta`. Fase 1 debe partir de esa auditoría, no de cero.
 - Anti-patrón detectado en el mapeo de arquitectura (`ARCHITECTURE.md`): lógica de proyección geométrica duplicada entre `InteractiveMap.jsx` (constantes/funciones locales de radio terrestre y punto-destino) y `geoRuta.js` (fuente de verdad) — relevante para las fases de flecha/rumbo (NAV) y fidelidad de curvas (GEOM).
 - Hallazgo concreto ya localizado: `InteractiveMap.jsx:354-360` calcula la rotación de la flecha condicionada a `!enSeguimiento` en vez de `!siguiendo`, por lo que al pausar la cámara con un gesto la flecha queda fija asumiendo que el mapa sigue rotando — candidato fuerte a causa raíz de NAV-02.
 - Sin Wake Lock implementado (grep sin resultados en `frontend/src`) y sin tráfico ArcGIS (`startTime`/`TravelTime`) implementado en el backend — ambos son trabajo nuevo, no bugs a corregir.
@@ -78,7 +78,7 @@ Que la navegación en tiempo real sea confiable y responsiva: la flecha, la cám
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | `.planning/` vive en este worktree (`leatherback`), no en el checkout principal | El usuario pidió explícitamente que este worktree sea el "padre" de la orquestación multiagente; `gsd-tools` centraliza por defecto en el checkout principal salvo que `.planning/` ya exista en el worktree invocador | ✓ Good |
-| Fase 0 audita primero el trabajo ya mergeado de `codex/map-navigation-reliability` | Evitar redescubrir o reimplementar fixes que ya resolvieron parte de los síntomas reportados | — Pending |
+| Fase 1 audita primero el trabajo ya mergeado de `codex/map-navigation-reliability` | Evitar redescubrir o reimplementar fixes que ya resolvieron parte de los síntomas reportados | — Pending |
 | Worktree huérfano `.worktrees/map-navigation-reliability` se deja intacto | Decisión explícita del usuario; rama ya mergeada pero sin confirmación de limpieza | ✓ Good |
 | Delegación real a Codex/OpenCode/Cursor vía `orca worktree create --agent <id> --parent-worktree active` desde este worktree | El usuario confirmó que este worktree actúa como padre y que los hijos deben ejecutar cada herramienta real, no solo recibir un brief manual | — Pending |
 | UAT físico se ejecuta según cronograma (dispositivos disponibles) | El usuario confirmó tener Android/iPhone físicos y entorno HTTPS de staging listos | — Pending |

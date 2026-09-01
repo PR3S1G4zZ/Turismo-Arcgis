@@ -64,21 +64,21 @@ Diferido a futuro. No mapeado al roadmap actual.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIAG-01 | Phase 0 | Pending |
-| DIAG-02 | Phase 0 | Pending |
-| NAV-01 | Phase 1 | Pending |
-| NAV-02 | Phase 1 | Pending |
-| NAV-03 | Phase 1 | Pending |
-| NAV-04 | Phase 1 | Pending |
-| RECALC-01 | Phase 2 | Pending |
-| RECALC-02 | Phase 2 | Pending |
-| GEOM-01 | Phase 3 | Pending |
-| GEOM-02 | Phase 3 | Pending |
-| WAKE-01 | Phase 4 | Pending |
-| TRAFFIC-01 | Phase 5 | Pending |
-| TRAFFIC-02 | Phase 5 | Pending |
-| HARDEN-01 | Phase 6 | Pending |
-| HARDEN-02 | Phase 6 | Pending |
+| DIAG-01 | Phase 1 | Pending |
+| DIAG-02 | Phase 1 | Pending |
+| NAV-01 | Phase 2 | Pending |
+| NAV-02 | Phase 2 | Pending |
+| NAV-03 | Phase 2 | Pending |
+| NAV-04 | Phase 2 | Pending |
+| RECALC-01 | Phase 3 | Pending |
+| RECALC-02 | Phase 3 | Pending |
+| GEOM-01 | Phase 4 | Pending |
+| GEOM-02 | Phase 4 | Pending |
+| WAKE-01 | Phase 5 | Pending |
+| TRAFFIC-01 | Phase 6 | Pending |
+| TRAFFIC-02 | Phase 6 | Pending |
+| HARDEN-01 | Phase 7 | Pending |
+| HARDEN-02 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
