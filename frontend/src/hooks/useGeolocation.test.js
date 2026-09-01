@@ -5,10 +5,10 @@ let success;
 let failure;
 let watchOptions;
 
-function fix({ timestamp, accuracy = 10, latitude = 0, longitude = 0 } = {}) {
+function fix({ timestamp, accuracy = 10, latitude = 0, longitude = 0, heading = null, speed = null } = {}) {
   return {
     timestamp,
-    coords: { latitude, longitude, accuracy, heading: null, speed: null },
+    coords: { latitude, longitude, accuracy, heading, speed },
   };
 }
 
@@ -137,5 +137,46 @@ describe('useGeolocation', () => {
 
     await waitFor(() => expect(result.current.gpsConfiable).toBe(false));
     expect(markSpy.mock.calls.filter(([nombre]) => nombre === 'gps:aceptado')).toHaveLength(0);
+  });
+
+  it('keeps a valid GPS heading while moving', async () => {
+    const now = Date.now();
+    const { useGeolocation } = await import('./useGeolocation');
+    const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
+
+    await waitFor(() => expect(success).toBeTypeOf('function'));
+    act(() => success(fix({ timestamp: now, heading: 92, speed: 1.2 })));
+
+    expect(result.current.position.heading).toBe(92);
+  });
+
+  it('deduces a movement heading from two sufficiently distant fixes', async () => {
+    const now = Date.now();
+    const { useGeolocation } = await import('./useGeolocation');
+    const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
+
+    await waitFor(() => expect(success).toBeTypeOf('function'));
+    act(() => success(fix({ timestamp: now, latitude: 0, longitude: 0 })));
+    act(() => success(fix({ timestamp: now + 1, latitude: 0.0001, longitude: 0 })));
+
+    expect(result.current.position.heading).toBeCloseTo(0, 0);
+  });
+
+  it('clears the previous GPS watch before changing accuracy and on unmount', async () => {
+    const { useGeolocation } = await import('./useGeolocation');
+    const clearWatch = navigator.geolocation.clearWatch;
+    const { rerender, unmount } = renderHook(
+      ({ precisionAlta }) => useGeolocation({ precisionAlta }),
+      { initialProps: { precisionAlta: true } },
+    );
+
+    await waitFor(() => expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(1));
+    rerender({ precisionAlta: false });
+    await waitFor(() => expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(2));
+    expect(clearWatch).toHaveBeenCalledWith(7);
+
+    unmount();
+    expect(clearWatch).toHaveBeenCalledTimes(2);
+    expect(clearWatch).toHaveBeenLastCalledWith(7);
   });
 });

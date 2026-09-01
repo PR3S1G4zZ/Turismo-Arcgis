@@ -1,6 +1,6 @@
 // src/hooks/useGeolocation.js
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { distanciaM, rumbo, suavizarRumbo } from '../utilidades/geoRuta';
+import { distanciaM, rumbo, suavizarRumbo, VELOCIDAD_MIN_MS } from '../utilidades/geoRuta';
 import { marcar, MARCAS } from '../utilidades/diagnosticoLatencias';
 
 // Coordenadas del Parque Principal de Itagüí como último recurso (solo si el
@@ -11,7 +11,6 @@ const FALLBACK_LNG = -75.6091;
 // Umbrales para deducir el rumbo. El GPS solo da `coords.heading` fiable cuando
 // hay velocidad; a pie casi siempre viene null, así que se calcula entre
 // lecturas separadas por al menos unos metros (menos que eso es ruido del GPS).
-const VELOCIDAD_MIN_MS = 0.5;
 const DESPLAZAMIENTO_MIN_M = 5;
 const PRECISION_MAXIMA_M = 50;
 const EDAD_MAXIMA_EN_VIVO_MS = 5000;

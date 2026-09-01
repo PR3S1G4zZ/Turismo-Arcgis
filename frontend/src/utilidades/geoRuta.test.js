@@ -6,6 +6,11 @@ import {
   localizarEnRuta,
   prepararRuta,
   rumbo,
+  normalizarRumbo,
+  rotacionRelativaViewport,
+  seleccionarRumbo,
+  suavizarRumbo,
+  tangenteRuta,
 } from './geoRuta';
 
 describe('geoRuta', () => {
@@ -82,5 +87,78 @@ describe('geoRuta', () => {
   it('falls back to an em dash for non-finite durations', () => {
     expect(formatearDuracion(NaN)).toBe('—');
     expect(formatearDuracion(Infinity)).toBe('—');
+  });
+
+  describe('rumbo visual', () => {
+    it('normalizes headings and keeps the shortest relative rotation', () => {
+      expect(normalizarRumbo(-1)).toBe(359);
+      expect(normalizarRumbo(721)).toBe(1);
+      expect(rotacionRelativaViewport(5, 350)).toBe(15);
+      expect(rotacionRelativaViewport(359, 0)).toBe(-1);
+      expect(rotacionRelativaViewport(1, 359)).toBe(2);
+    });
+
+    it('smooths north-crossing headings over the short arc', () => {
+      const haciaNorte = suavizarRumbo(359, 1);
+      const desdeNorte = suavizarRumbo(1, 359);
+      expect(haciaNorte < 1 || haciaNorte > 359).toBe(true);
+      expect(desdeNorte < 1 || desdeNorte > 359).toBe(true);
+    });
+
+    it('prioritizes a trusted movement heading over a fresh compass', () => {
+      expect(seleccionarRumbo({
+        moviendo: true,
+        rumboMovimiento: 92,
+        gpsConfiable: true,
+        rumboBrujula: 10,
+        permisoBrujula: 'concedido',
+        ultimaLecturaBrujula: 1000,
+        ahora: 1001,
+      })).toEqual({ rumbo: 92, fuente: 'movimiento' });
+    });
+
+    it('uses a fresh authorized compass when the user is stopped', () => {
+      expect(seleccionarRumbo({
+        moviendo: false,
+        rumboMovimiento: 92,
+        gpsConfiable: true,
+        rumboBrujula: 10,
+        permisoBrujula: 'no-requiere',
+        ultimaLecturaBrujula: 1000,
+        ahora: 1200,
+      })).toEqual({ rumbo: 10, fuente: 'brujula' });
+    });
+
+    it('rejects an expired compass and uses the route tangent as fallback', () => {
+      const ruta = prepararRuta({ puntos: [[0, 0], [0.001, 0]], pasos: [] });
+
+      expect(seleccionarRumbo({
+        moviendo: false,
+        gpsConfiable: false,
+        rumboBrujula: 10,
+        permisoBrujula: 'concedido',
+        ultimaLecturaBrujula: 1000,
+        ahora: 3000,
+        rumboRespaldo: tangenteRuta(ruta, 0),
+      })).toEqual({ rumbo: 0, fuente: 'tangente-ruta' });
+    });
+
+    it('returns no heading when every source is absent or unauthorized', () => {
+      expect(seleccionarRumbo({
+        moviendo: false,
+        gpsConfiable: false,
+        rumboBrujula: 10,
+        permisoBrujula: 'denegado',
+        ultimaLecturaBrujula: 1000,
+        ahora: 1001,
+      })).toBeNull();
+      expect(seleccionarRumbo({
+        moviendo: false,
+        rumboBrujula: 10,
+        ultimaLecturaBrujula: 1000,
+        ahora: 1001,
+      })).toBeNull();
+      expect(tangenteRuta({ puntos: [[0, 0]] }, 0)).toBeNull();
+    });
   });
 });

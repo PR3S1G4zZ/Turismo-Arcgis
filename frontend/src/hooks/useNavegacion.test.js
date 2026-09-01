@@ -51,6 +51,7 @@ describe('useNavegacion', () => {
       'walk',
       'Destino B',
     );
+    await waitFor(() => expect(result.current.avanceRuta).toMatchObject({ indice: 0 }));
   });
 
   it('keeps a manual origin route as a static preview', async () => {

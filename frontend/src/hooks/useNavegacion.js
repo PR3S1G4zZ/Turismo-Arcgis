@@ -319,6 +319,9 @@ export function useNavegacion() {
     ruta,
     destino,
     modo,
+    // El mapa puede derivar una tangente visual de este matching existente;
+    // la pausa de cámara nunca entra como dependencia del motor.
+    avanceRuta: avance,
     tramos,
     instruccion,
     desviacionM: avance?.desviacionM ?? 0,

@@ -21,11 +21,11 @@ vi.mock('react-map-gl/maplibre', async () => {
   const React = await import('react');
   return {
     default: React.forwardRef((props, ref) => {
-      const { onLoad } = props;
+      const { onLoad, children } = props;
       mapProps = props;
       React.useImperativeHandle(ref, () => map);
       React.useEffect(() => onLoad?.({ target: map }), [onLoad]);
-      return <div data-testid="map" />;
+      return <div data-testid="map">{children}</div>;
     }),
     Marker: ({ children }) => <>{children}</>,
     Popup: ({ children }) => <>{children}</>,
@@ -95,6 +95,7 @@ describe('InteractiveMap camera lifecycle', () => {
     renderMap(navigation());
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(map.easeTo).toHaveBeenCalledTimes(1);
     expect(map.stop).toHaveBeenCalledBefore(map.easeTo);
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
       center: [-75.611, 6.171], bearing: 90, pitch: 50, duration: 250,
@@ -132,6 +133,46 @@ describe('InteractiveMap camera lifecycle', () => {
 
     act(() => mapProps[eventName]());
     expect(screen.getByRole('button', { name: /centrar en mí/i })).toBeTruthy();
+  });
+
+  it('keeps the arrow aligned to the viewport after follow is paused', async () => {
+    const view = renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    map.easeTo.mockClear();
+
+    act(() => mapProps.onDragStart());
+    view.rerender(
+      <NavegacionContext.Provider value={navigation({ posicion: { ...position, heading: 100 } })}>
+        <InteractiveMap site={site} showRoute />
+      </NavegacionContext.Provider>,
+    );
+
+    await waitFor(() => expect(view.container.querySelector('.user-arrow').style.transform).toBe('rotate(10deg)'));
+    expect(map.easeTo).not.toHaveBeenCalled();
+  });
+
+  it('uses the current viewport bearing when the user rotates the paused map', async () => {
+    const view = renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    map.easeTo.mockClear();
+    act(() => mapProps.onDragStart());
+
+    act(() => mapProps.onMove({ viewState: { bearing: 120 } }));
+
+    await waitFor(() => expect(view.container.querySelector('.user-arrow').style.transform).toBe('rotate(-30deg)'));
+    expect(map.easeTo).not.toHaveBeenCalled();
+  });
+
+  it('restarts only camera follow when pressing recenter', async () => {
+    renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    act(() => mapProps.onDragStart());
+    map.easeTo.mockClear();
+
+    act(() => screen.getByRole('button', { name: /centrar en/i }).click());
+
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ bearing: 90, duration: 250 }));
   });
 
   it('returns explicitly to north-up when live navigation exits', async () => {
