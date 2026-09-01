@@ -107,4 +107,30 @@ describe('useGeolocation', () => {
     expect(result.current.posicionSimulada).toBe(false);
     expect(result.current.gpsConfiable).toBe(false);
   });
+
+  it('marks gps:aceptado exactly once when a fix is accepted', async () => {
+    const now = Date.now();
+    const markSpy = vi.spyOn(performance, 'mark');
+    const { useGeolocation } = await import('./useGeolocation');
+    const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
+
+    await waitFor(() => expect(success).toBeTypeOf('function'));
+    act(() => success(fix({ timestamp: now, latitude: 0, longitude: 0 })));
+    await waitFor(() => expect(result.current.gpsConfiable).toBe(true));
+
+    expect(markSpy.mock.calls.filter(([nombre]) => nombre === 'gps:aceptado')).toHaveLength(1);
+  });
+
+  it('does not mark gps:aceptado when a fix is rejected for low accuracy', async () => {
+    const now = Date.now();
+    const markSpy = vi.spyOn(performance, 'mark');
+    const { useGeolocation } = await import('./useGeolocation');
+    const { result } = renderHook(() => useGeolocation({ precisionAlta: true }));
+
+    await waitFor(() => expect(success).toBeTypeOf('function'));
+    act(() => success(fix({ timestamp: now, accuracy: 51 })));
+
+    await waitFor(() => expect(result.current.gpsConfiable).toBe(false));
+    expect(markSpy.mock.calls.filter(([nombre]) => nombre === 'gps:aceptado')).toHaveLength(0);
+  });
 });
