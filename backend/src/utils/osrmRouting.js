@@ -5,6 +5,8 @@
 // AVISO: router.project-osrm.org es un servidor de DEMOSTRACIÓN, sin garantía de
 // disponibilidad y con límite de peticiones. Es válido para desarrollo y como
 // red de seguridad, pero la ruta de producción debe ser ArcGIS.
+import { capturarSiCorresponde } from './capturaGeometria.js';
+
 const BASE = 'https://router.project-osrm.org/route/v1';
 
 // OSRM no devuelve texto de instrucción, solo el tipo de maniobra. Se compone
@@ -72,6 +74,7 @@ export async function resolverRutaOsrm(origen, destino, modo) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`OSRM respondió ${res.status}`);
   const data = await res.json();
+  capturarSiCorresponde('osrm-crudo', data);
   if (data.code !== 'Ok' || !data.routes?.length) {
     throw new Error(`OSRM no encontró ruta (${data.code || 'sin código'}).`);
   }
@@ -97,11 +100,13 @@ export async function resolverRutaOsrm(origen, destino, modo) {
 
   const distanciaM = Number(ruta.distance) || 0;
 
-  return {
+  const normalizado = {
     fuente: 'osrm',
     puntos,
     pasos,
     distanciaM,
     duracionMin: duracionDe(distanciaM, Number(ruta.duration)),
   };
+  capturarSiCorresponde('osrm-normalizado', normalizado);
+  return normalizado;
 }

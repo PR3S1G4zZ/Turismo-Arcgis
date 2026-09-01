@@ -75,7 +75,10 @@ function renderMap(value, props = { showRoute: true }) {
 }
 
 describe('InteractiveMap camera lifecycle', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    delete window.__capturarGeometria;
+    cleanup();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -89,6 +92,37 @@ describe('InteractiveMap camera lifecycle', () => {
 
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(1));
     expect(map.easeTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps geometry capture silent unless the manual flag is enabled', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    renderMap(navigation({ navegando: false, previsualizando: true, gpsConfiable: false }));
+
+    await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(1));
+    expect(log).not.toHaveBeenCalledWith(
+      '[captura-geometria] geojson-maplibre',
+      expect.any(String)
+    );
+    log.mockRestore();
+  });
+
+  it('logs the complete MapLibre GeoJSON when the dev-only flag is enabled', async () => {
+    window.__capturarGeometria = true;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    renderMap(navigation({ navegando: false, previsualizando: true, gpsConfiable: false }));
+
+    await waitFor(() => expect(log).toHaveBeenCalledWith(
+      '[captura-geometria] geojson-maplibre',
+      JSON.stringify({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: puntos.map(([lat, lng]) => [lng, lat]),
+        },
+        properties: {},
+      })
+    ));
+    log.mockRestore();
   });
 
   it('owns a trusted live camera update by stopping before a short course-up ease', async () => {

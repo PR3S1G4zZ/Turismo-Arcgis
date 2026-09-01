@@ -93,7 +93,11 @@ Plans:
   3. Las rotondas y curvas se muestran visualmente sin cortar esquinas, separadores ni edificios, y sin abandonar la calzada, validado contra al menos una rotonda real de Itagüí
   4. El map matching, el progreso y la detección de desvío siguen usando la geometría original sin alteración — cualquier mejora aplicada (casing, ancho de línea, opacidad, transiciones por zoom, o densificación visual si la geometría cruda resulta genuinamente escasa) es solo de representación, nunca del trazado lógico
 
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+
+- [x] 04-01-PLAN.md — Instrumentación dev-only de ArcGIS/OSRM/normalización/GeoJSON y guía segura de captura
+- [ ] 04-02-PLAN.md — Checkpoint humano: ruta real entre sitios públicos, captura visual y comparación de las 5 etapas
 
 ### Phase 5: Mantener la pantalla activa
 
@@ -148,7 +152,7 @@ Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Diagnóstico e instrumentación | 0/TBD | Not started | - |
 | 2. Flecha, rumbo y cámara desacoplados | 0/TBD | Not started | - |
 | 3. Desvíos y recálculo adaptativo | 0/TBD | Not started | - |
-| 4. Fidelidad de curvas y rotondas | 0/TBD | Not started | - |
+| 4. Fidelidad de curvas y rotondas | 1/2 | Awaiting human capture | - |
 | 5. Mantener la pantalla activa | 0/TBD | Not started | - |
 | 6. Tráfico ArcGIS | 0/TBD | Not started | - |
 | 7. Endurecimiento y UAT | 0/TBD | Not started | - |
