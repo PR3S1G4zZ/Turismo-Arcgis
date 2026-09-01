@@ -19,6 +19,9 @@ import {
   partirRuta,
   distanciaM,
 } from '../utilidades/geoRuta';
+// Instrumentación de diagnóstico dev-only (Fase 1, DIAG-01) -- ver
+// diagnosticoLatencias.js: no-op en producción, nunca registra coordenadas.
+import { marcar, medir, MARCAS, TRAMOS } from '../utilidades/diagnosticoLatencias';
 
 // Distancia al trayecto a partir de la cual se considera que el usuario se salió.
 const UMBRAL_DESVIO_M = 45;
@@ -111,6 +114,9 @@ export function useNavegacion() {
     if (calculandoRef.current) return;
     calculandoRef.current = true;
     ultimoCalculoRef.current = Date.now();
+    // Tramo 5 (solicitud->respuesta ArcGIS): arranca aquí, tras el guard de
+    // solape, para no contar invocaciones descartadas por calculandoRef.
+    marcar(MARCAS.SOLICITUD_ENVIADA);
 
     if (esRecalculo) setRecalculando(true);
     else setEstado(esVistaPrevia ? 'previsualizando' : 'calculando');
@@ -118,6 +124,11 @@ export function useNavegacion() {
 
     try {
       const cruda = await rutasApi.resolver(origen, destinoPunto, modoViaje, destinoPunto.nombre);
+      // Cubre el viaje completo frontend->backend->ArcGIS->frontend, no solo
+      // el tiempo interno de ArcGIS -- también sirve de arranque del tramo 6
+      // (respuesta->ruta renderizada), que 01-04 empareja en InteractiveMap.jsx.
+      marcar(MARCAS.RESPUESTA_RECIBIDA);
+      medir(TRAMOS.SOLICITUD_RESPUESTA_ARCGIS, MARCAS.SOLICITUD_ENVIADA, MARCAS.RESPUESTA_RECIBIDA);
       const preparada = prepararRuta(cruda);
       if (!preparada) throw new Error('La ruta recibida no tiene un trayecto válido.');
 
@@ -245,10 +256,16 @@ export function useNavegacion() {
     // Detección de desvío y recálculo automático.
     if (ubicacion.desviacionM > UMBRAL_DESVIO_M) {
       lecturasFueraRef.current += 1;
+      // Tramo 4 (desvío->solicitud): solo la primera lectura que cruza el
+      // umbral marca el inicio del ciclo -- las siguientes lecturas fuera de
+      // ruta del mismo ciclo no deben re-marcar.
+      if (lecturasFueraRef.current === 1) marcar(MARCAS.DESVIO_DETECTADO);
       const suficientesLecturas = lecturasFueraRef.current >= LECTURAS_PARA_RECALCULAR;
       const pasoElTiempo = Date.now() - ultimoCalculoRef.current > ESPERA_ENTRE_RECALCULOS_MS;
       if (suficientesLecturas && pasoElTiempo) {
         lecturasFueraRef.current = 0;
+        marcar(MARCAS.RECALCULO_SOLICITADO);
+        medir(TRAMOS.DESVIO_SOLICITUD, MARCAS.DESVIO_DETECTADO, MARCAS.RECALCULO_SOLICITADO);
         calcular(position, destino, modo, true);
       }
     } else {
