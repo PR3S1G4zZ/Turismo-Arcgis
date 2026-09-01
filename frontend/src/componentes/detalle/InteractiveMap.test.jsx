@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 
@@ -23,7 +23,7 @@ vi.mock('react-map-gl/maplibre', async () => {
       mapProps = props;
       React.useImperativeHandle(ref, () => map);
       React.useEffect(() => onLoad?.({ target: map }), [onLoad]);
-      return <div data-testid="map" />;
+      return <div data-testid="map">{props.children}</div>;
     }),
     Marker: ({ children }) => <>{children}</>,
     Popup: ({ children }) => <>{children}</>,
@@ -139,4 +139,34 @@ describe('InteractiveMap camera lifecycle', () => {
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ bearing: 0, pitch: 0 })));
   });
+
+  it('resumes course-up follow when Centrar en mí is pressed after a drag pause', async () => {
+    renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    act(() => mapProps.onDragStart());
+    map.easeTo.mockClear();
+    map.stop.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: /centrar en mí/i }));
+
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(map.stop).toHaveBeenCalledBefore(map.easeTo);
+    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      center: [-75.611, 6.171], bearing: 90, pitch: 50, duration: 250,
+    }));
+  });
+
+  it('keeps the arrow at rotate(0deg) while follow is paused (rotation still keys off enSeguimiento)', async () => {
+    renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    act(() => mapProps.onDragStart());
+
+    const flecha = document.querySelector('.user-arrow');
+    expect(flecha).toBeTruthy();
+    expect(flecha.style.transform).toBe('rotate(0deg)');
+  });
+});
+
+describe('Pendiente de Fase 2 (NAV-02)', () => {
+  it.todo('con la cámara pausada por gesto, la flecha rota relativa al viewport (hoy usa !enSeguimiento, no !siguiendo)');
 });

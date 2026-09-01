@@ -132,4 +132,57 @@ describe('useNavegacion', () => {
       );
     });
   });
+
+  describe('persistencia de desvío actual (3 lecturas / 15 s — no es histéresis RECALC-01)', () => {
+    const posicionFueraDeRuta = { lat: 0.0005, lng: 0.00042, accuracy: 10 };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('does not recalculate after only two off-route fixes', async () => {
+      const { result, rerender } = renderHook(() => useNavegacion());
+      act(() => result.current.iniciar(site, 'walk'));
+      await waitFor(() => expect(result.current.estado).toBe('navegando'));
+      resolver.mockClear();
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20000);
+
+      gps = { ...gps, position: posicionFueraDeRuta };
+      rerender();
+      gps = { ...gps, position: { ...posicionFueraDeRuta } };
+      rerender();
+
+      expect(resolver).not.toHaveBeenCalled();
+      expect(result.current.fueraDeRuta).toBe(true);
+    });
+
+    it('resets the off-route counter when the fix returns to the polyline', async () => {
+      const { result, rerender } = renderHook(() => useNavegacion());
+      act(() => result.current.iniciar(site, 'walk'));
+      await waitFor(() => expect(result.current.estado).toBe('navegando'));
+      resolver.mockClear();
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20000);
+
+      gps = { ...gps, position: posicionFueraDeRuta };
+      rerender();
+      gps = { ...gps, position: { ...posicionFueraDeRuta } };
+      rerender();
+      gps = { ...gps, position: { lat: 0.0004, lng: 0, accuracy: 10 } };
+      rerender();
+      gps = { ...gps, position: posicionFueraDeRuta };
+      rerender();
+      gps = { ...gps, position: { ...posicionFueraDeRuta } };
+      rerender();
+
+      expect(resolver).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Pendiente de Fase 3 (RECALC-01/02)', () => {
+    it.todo('un salto GPS aislado incoherente con precisión/velocidad/dirección no incrementa el recálculo (RECALC-02)');
+    it.todo('un desvío confirmado no espera ESPERA_ENTRE_RECALCULOS_MS artificial extra (RECALC-02)');
+    it.todo('histéresis de entrada/salida de desviado con señales múltiples (RECALC-01)');
+    it.todo('respuestas de recálculo obsoletas se ignoran cuando hay una solicitud más nueva (RECALC-02)');
+  });
 });
+
