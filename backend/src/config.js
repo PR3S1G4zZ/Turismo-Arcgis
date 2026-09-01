@@ -3,8 +3,28 @@
 // para el resto del backend, con valores por defecto seguros para desarrollo.
 import 'dotenv/config';
 
+const isProduction = process.env.NODE_ENV === 'production';
+const JWT_SECRET_PLACEHOLDERS = new Set([
+  'dev-secreto-inseguro-cambiar',
+  'cambia-esto-por-un-secreto-largo-y-aleatorio',
+]);
+
+if (
+  isProduction
+  && (
+    !process.env.JWT_SECRET
+    || process.env.JWT_SECRET.length < 32
+    || JWT_SECRET_PLACEHOLDERS.has(process.env.JWT_SECRET)
+  )
+) {
+  throw new Error('[config] JWT_SECRET must be a unique production secret of at least 32 characters.');
+}
+
 const required = (name, value) => {
   if (!value) {
+    if (isProduction) {
+      throw new Error(`[config] Missing required production variable: ${name}.`);
+    }
     console.warn(`[config] Falta la variable de entorno ${name}; usando valor por defecto de desarrollo.`);
   }
   return value;
@@ -46,9 +66,9 @@ export const config = {
 
   seedAdmin: {
     username: process.env.SEED_ADMIN_USERNAME || 'admin',
-    password: process.env.SEED_ADMIN_PASSWORD || 'Itagui2026*Cambiar',
+    password: process.env.SEED_ADMIN_PASSWORD || (isProduction ? '' : 'Itagui2026*Cambiar'),
     name: process.env.SEED_ADMIN_NAME || 'Administrador Principal',
   },
 
-  isProduction: process.env.NODE_ENV === 'production',
+  isProduction,
 };

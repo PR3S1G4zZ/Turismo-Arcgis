@@ -8,6 +8,15 @@
 import { capturarSiCorresponde } from './capturaGeometria.js';
 
 const BASE = 'https://router.project-osrm.org/route/v1';
+const ROUTING_TIMEOUT_DEFAULT_MS = 8000;
+
+function timeoutSignal() {
+  const configured = Number(process.env.ROUTING_HTTP_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configured) && configured > 0
+    ? configured
+    : ROUTING_TIMEOUT_DEFAULT_MS;
+  return AbortSignal.timeout(timeoutMs);
+}
 
 // OSRM no devuelve texto de instrucción, solo el tipo de maniobra. Se compone
 // la frase en español a partir de `maneuver` y del nombre de la vía.
@@ -71,7 +80,7 @@ export async function resolverRutaOsrm(origen, destino, modo) {
   const coords = `${origen.lng},${origen.lat};${destino.lng},${destino.lat}`;
   const url = `${BASE}/${perfil}/${coords}?overview=full&geometries=geojson&steps=true`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: timeoutSignal() });
   if (!res.ok) throw new Error(`OSRM respondió ${res.status}`);
   const data = await res.json();
   capturarSiCorresponde('osrm-crudo', data);

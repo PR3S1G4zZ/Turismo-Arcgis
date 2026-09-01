@@ -381,12 +381,6 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   }, [mapListo, enSeguimiento, siguiendo, userPosition, actualizarBearingViewport]);
 
   useEffect(() => {
-    if (!userPosition) return;
-    marcar(MARCAS.MARCADOR_RENDER);
-    medir(TRAMOS.GPS_MARCADOR, MARCAS.GPS_ACEPTADO, MARCAS.MARCADOR_RENDER);
-  }, [userPosition]);
-
-  useEffect(() => {
     if (orientacion.heading == null) return;
     marcar(MARCAS.FLECHA_RENDER);
     medir(TRAMOS.ORIENTACION_FLECHA, MARCAS.ORIENTACION_CAMBIO, MARCAS.FLECHA_RENDER);

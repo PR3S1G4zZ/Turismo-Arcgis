@@ -11,13 +11,13 @@ Este milestone endurece la navegación en tiempo real ya existente (GPS, flecha,
 - Fases enteras (0, 1, 2…): trabajo de milestone planificado, numeradas exactamente como las especificó el responsable del milestone (Phase 1 a Phase 7)
 - Fases decimales (2.1, 2.2): inserciones urgentes (marcadas con INSERTED)
 
-- [ ] **Phase 1: Diagnóstico e instrumentación** - Medir dónde se origina el retraso percibido y auditar qué ya resolvió PR #5 antes de re-instrumentar
-- [ ] **Phase 2: Flecha, rumbo y cámara desacoplados** - Estados independientes de GPS/rumbo/brújula/flecha/cámara; un gesto pausa solo la cámara
-- [ ] **Phase 3: Desvíos y recálculo adaptativo** - Detección de desvío con histéresis multi-señal; sin recortar umbrales sin analizar por qué existen
-- [ ] **Phase 4: Fidelidad de curvas y rotondas** - Verificar el pipeline geométrico real antes de tocar el renderizado; geometría cruda como fuente de verdad
+- [ ] **Phase 1: Diagnóstico e instrumentación** - Implementación integrada; captura de latencias en dispositivo físico pendiente
+- [ ] **Phase 2: Flecha, rumbo y cámara desacoplados** - Implementación integrada; validación p95 en dispositivo físico pendiente
+- [x] **Phase 3: Desvíos y recálculo adaptativo** - Detección de desvío con histéresis multi-señal y recálculo latest-request-wins
+- [ ] **Phase 4: Fidelidad de curvas y rotondas** - Instrumentación y preservación de geometría integradas; comparación visual real pendiente
 - [x] **Phase 5: Mantener la pantalla activa** - Screen Wake Lock aislado, con reintento tras segundo plano y degradación segura (completed 2026-09-01)
-- [ ] **Phase 6: Tráfico ArcGIS** - Ruteo sensible al tráfico en auto + investigación de capa visual detrás de feature flag (requiere `--research`)
-- [ ] **Phase 7: Endurecimiento y UAT** - Suite de pruebas en verde + UAT físico en Android Chrome e iPhone Safari
+- [x] **Phase 6: Tráfico ArcGIS** - Ruteo sensible al tráfico integrado; capa visual diferida por falta de evidencia suficiente
+- [ ] **Phase 7: Endurecimiento y UAT** - Suite automatizada integrada; UAT físico en Android Chrome e iPhone Safari pendiente
 
 ## Phase Details
 
@@ -158,10 +158,10 @@ Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Diagnóstico e instrumentación | 0/TBD | Not started | - |
-| 2. Flecha, rumbo y cámara desacoplados | 0/TBD | Not started | - |
-| 3. Desvíos y recálculo adaptativo | 0/TBD | Not started | - |
+| 1. Diagnóstico e instrumentación | 5/5 | Implementación integrada; captura física pendiente | 2026-09-01 (parcial) |
+| 2. Flecha, rumbo y cámara desacoplados | 3/3 | Implementación integrada; p95 físico pendiente | 2026-09-01 (parcial) |
+| 3. Desvíos y recálculo adaptativo | Implementación integrada | Automatizado; revisión de campo pendiente | 2026-09-01 |
 | 4. Fidelidad de curvas y rotondas | 1/2 | Awaiting human capture | - |
 | 5. Mantener la pantalla activa | 1/1 | Complete    | 2026-09-01 |
-| 6. Tráfico ArcGIS | 0/TBD | Not started | - |
-| 7. Endurecimiento y UAT | 3/3 planes de suite/UAT-plantilla | Suite local verde; UAT físico PENDIENTE; Fases 1–6 aún incompletas | 2026-09-01 (parcial) |
+| 6. Tráfico ArcGIS | Implementación + investigación | TRAFFIC-01 integrado; TRAFFIC-02 diferido | 2026-09-01 (parcial) |
+| 7. Endurecimiento y UAT | 3/3 planes de suite/UAT-plantilla | Suite local verde; UAT físico PENDIENTE | 2026-09-01 (parcial) |

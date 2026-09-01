@@ -134,7 +134,32 @@ describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => 
     expect(res.body.error).toMatch(/no se pudo calcular la ruta/i);
   });
 
-  it('hoy no envía startTime ni TravelTime en el body hacia ArcGIS (TRAFFIC-01 aún no existe)', async () => {
+  it('falls back to OSRM when ArcGIS exceeds the routing timeout', async () => {
+    const timeoutAnterior = process.env.ROUTING_HTTP_TIMEOUT_MS;
+    process.env.ROUTING_HTTP_TIMEOUT_MS = '20';
+    const arcgisLento = (_url, init) => new Promise((_, reject) => {
+      if (init?.signal?.aborted) {
+        reject(init.signal.reason);
+        return;
+      }
+      init?.signal?.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+    vi.stubGlobal('fetch', mockFetchPorDominio(arcgisLento, osrmOk));
+
+    try {
+      const res = await request(appDePrueba())
+        .post('/api/rutas/resolver')
+        .send({ origen, destino, modo: 'walk' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.fuente).toBe('osrm');
+    } finally {
+      if (timeoutAnterior === undefined) delete process.env.ROUTING_HTTP_TIMEOUT_MS;
+      else process.env.ROUTING_HTTP_TIMEOUT_MS = timeoutAnterior;
+    }
+  });
+
+  it('expone la degradación cuando ArcGIS no publica un travel mode con tráfico', async () => {
     const cuerpos = [];
     vi.stubGlobal('fetch', mockFetchPorDominio((url, init) => {
       cuerpos.push(String(init?.body || ''));
@@ -152,8 +177,9 @@ describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => 
       expect(cuerpo).not.toMatch(/startTime/i);
       expect(cuerpo).not.toMatch(/TravelTime/i);
     }
-    expect(res.body).not.toHaveProperty('traficoSolicitado');
-    expect(res.body).not.toHaveProperty('traficoDisponible');
+    expect(res.body.traficoSolicitado).toBe(true);
+    expect(res.body.traficoAplicado).toBe(false);
+    expect(res.body.degradacionTrafico).toBe('travel-mode-sin-impedancia-de-trafico');
   });
 
   it('nunca deja pasar coordenadas inválidas: responde 400 sin llamar a fetch', async () => {
@@ -167,26 +193,4 @@ describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => 
     expect(res.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-});
-
-describe('Pendiente de fases futuras del milestone (placeholders — CONTEXT.md 07 D-01)', () => {
-  // Estos casos dependen de código que todavía no existe en el repo. Se
-  // dejan como `it.todo` explícitos en vez de simular una implementación
-  // falsa. Referencia: .planning/ROADMAP.md Phase 6 (TRAFFIC-01/02) y
-  // .planning/phases/07-endurecimiento-y-uat/07-CONTEXT.md decisión D-01.
-
-  it.todo(
-    'incluye startTime=now en la solicitud a ArcGIS cuando el modo es "car" y hay tráfico disponible (TRAFFIC-01, Fase 6)'
-  );
-  it.todo(
-    'no incluye startTime en la solicitud cuando el modo es "walk" (el peatonal permanece sin tráfico, TRAFFIC-01, Fase 6)'
-  );
-  it.todo(
-    'la respuesta normalizada indica si se solicitó tráfico y si estuvo disponible, degradando con claridad sin cobertura (TRAFFIC-01, Fase 6)'
-  );
-  it.todo(
-    'una respuesta de ArcGIS que tarda más que el timeout configurado se trata como fallo y cae a OSRM ' +
-    '(hoy `pedirJson`/`solve` no implementan ningún timeout — no hay AbortController en arcgisRouting.js; ' +
-    'este caso requiere que una fase futura defina el mecanismo de timeout antes de poder probarse de verdad)'
-  );
 });

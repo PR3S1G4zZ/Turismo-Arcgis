@@ -414,11 +414,5 @@ describe('useNavegacion', () => {
     });
   });
 
-  describe('Pendiente de Fase 3 (RECALC-01/02)', () => {
-    it.todo('un salto GPS aislado incoherente con precisión/velocidad/dirección no incrementa el recálculo (RECALC-02)');
-    it.todo('un desvío confirmado no espera ESPERA_ENTRE_RECALCULOS_MS artificial extra (RECALC-02)');
-    it.todo('histéresis de entrada/salida de desviado con señales múltiples (RECALC-01)');
-    it.todo('respuestas de recálculo obsoletas se ignoran cuando hay una solicitud más nueva (RECALC-02)');
-  });
 });
 

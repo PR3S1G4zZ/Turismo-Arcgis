@@ -4,7 +4,7 @@
 # servicio/plugin aparte en Railway, no vive en esta imagen.
 
 # ─── Etapa 1: build del frontend ────────────────────────────────────────────
-FROM node:20-alpine AS frontend-build
+FROM node:22-alpine AS frontend-build
 WORKDIR /app/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -19,7 +19,7 @@ ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
 # ─── Etapa 2: backend + frontend compilado ─────────────────────────────────
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 COPY backend/package.json backend/package-lock.json ./

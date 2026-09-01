@@ -2,14 +2,15 @@
 
 **Fecha:** 2026-09-01  
 **Worktree:** `phase-7-hardening` (rama `PR3S1G4zZ/phase-7-hardening`)  
-**Producción:** no se cambió lógica de navegación. Excepción: ninguna.
+**Estado integrado:** las fases 1-6 ya están fusionadas en la rama de integración.
+La UAT física y la captura de latencias siguen pendientes.
 
 ## Comandos
 
 | Área | Comando | Resultado |
 |------|---------|-----------|
-| Backend tests | `npm test` en `backend/` | **7 passed, 4 todo** |
-| Frontend tests | `npm test` en `frontend/` | **44 passed, 11 todo**, 1 skipped file |
+| Backend tests | `npm test` + `npm run test:node` en `backend/` | **8 + 5 passed** |
+| Frontend tests | `npm test` en `frontend/` | **86 passed, 0 todo** |
 | Frontend lint | `npm run lint` en `frontend/` | **verde** |
 | Frontend build | `npm run build` en `frontend/` | **verde** (warning de tamaño de chunk MapLibre, preexistente) |
 | Backend lint | no hay script `lint` | N/A |
@@ -20,9 +21,11 @@ Grep de artefactos de esta fase: sin tokens reales, sin recorridos de dispositiv
 
 ## Pendientes estructurales
 
-- Fases 1–6 siguen incompletas en ROADMAP/STATE del milestone; Wake Lock y `startTime=now` no existen en código. Cubiertos con `it.todo`.
+- Las implementaciones de Fases 1-6 están integradas; la comparación geométrica y las
+  métricas p95 requieren una captura física.
 - HARDEN-02 UAT físico: checklist creado, filas en PENDIENTE.
-- NAV-02 (flecha vs `enSeguimiento`) documentado por test de comportamiento actual + `it.todo`; **no se corrigió** (pertenece a Fase 2).
+- El timeout de ruteo externo y el rechazo del secreto JWT por defecto en producción
+  están cubiertos por la revisión de integración.
 
 ## CI
 

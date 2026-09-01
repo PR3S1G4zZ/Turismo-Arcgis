@@ -3,11 +3,11 @@ import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { capturarSiCorresponde } from './capturaGeometria.js';
+import { capturarSiCorresponde } from '../src/utils/capturaGeometria.js';
 
 const DIR_CAPTURA = join(
   dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..',
+  '..', '..',
   '.planning', 'phases', '04-fidelidad-de-curvas-y-rotondas', 'captura'
 );
 
@@ -41,7 +41,7 @@ test('no escribe archivos cuando CAPTURAR_GEOMETRIA no vale exactamente true', (
     assert.equal(
       archivos.some((archivo) => archivo.endsWith(`-${nombre}.json`)),
       false,
-      `se escribió una captura con el guard apagado: ${nombre}`
+      `se escribiÃ³ una captura con el guard apagado: ${nombre}`
     );
   }
 });

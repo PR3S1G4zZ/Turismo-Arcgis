@@ -152,6 +152,9 @@ async function seedInitialAdmin() {
   if (rows[0].total > 0) return;
 
   const { username, password, name } = config.seedAdmin;
+  if (!password || password === 'Itagui2026*Cambiar') {
+    throw new Error('SEED_ADMIN_PASSWORD is required when the database has no users.');
+  }
   const hash = await bcrypt.hash(password, 12);
   await query(
     'INSERT INTO users (username, name, password_hash, role) VALUES (?, ?, ?, ?)',

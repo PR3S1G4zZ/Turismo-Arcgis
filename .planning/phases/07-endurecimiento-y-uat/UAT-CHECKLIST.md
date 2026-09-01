@@ -6,7 +6,9 @@
 
 **Estado:** plantilla lista; **ningún escenario se marca como ejecutado en esta sesión** (el ejecutor no tuvo los dispositivos físicos en mano). Completar en campo.
 
-Leyenda de resultado: `PENDIENTE` = no corrido; `BLOQUEADO` = no se pudo por dependencia (p. ej. Wake Lock / tráfico de Fases 5–6 aún no implementados).
+Leyenda de resultado: `PENDIENTE` = no corrido; `BLOQUEADO` = no se pudo por una
+dependencia del dispositivo o del entorno. Wake Lock y tráfico ya están integrados;
+su validación física todavía no se ha ejecutado.
 
 ## Android Chrome — a pie
 
@@ -16,7 +18,7 @@ Leyenda de resultado: `PENDIENTE` = no corrido; `BLOQUEADO` = no se pudo por dep
 | Calles paralelas | PENDIENTE | ¿El progreso se queda en la calle correcta? |
 | Ruta que se cruza a sí misma | PENDIENTE | ¿El avance no salta al tramo futuro cercano? |
 | Pérdida de GPS | PENDIENTE | ¿UI de GPS obsoleto / no disponible, sin fingir seguimiento? |
-| Regreso desde segundo plano | PENDIENTE | ¿La navegación retoma? Wake Lock: BLOQUEADO hasta WAKE-01 |
+| Regreso desde segundo plano | PENDIENTE | ¿La navegación retoma y el Wake Lock se solicita de nuevo? |
 
 ## Android Chrome — en auto
 
@@ -26,7 +28,7 @@ Leyenda de resultado: `PENDIENTE` = no corrido; `BLOQUEADO` = no se pudo por dep
 | Calles paralelas | PENDIENTE | |
 | Ruta que se cruza a sí misma | PENDIENTE | |
 | Pérdida de GPS | PENDIENTE | |
-| Regreso desde segundo plano | PENDIENTE | Tráfico `startTime=now`: BLOQUEADO hasta TRAFFIC-01 |
+| Regreso desde segundo plano | PENDIENTE | Verificar la continuidad del ruteo y el estado de tráfico. |
 
 ## iPhone Safari — a pie
 
@@ -36,7 +38,7 @@ Leyenda de resultado: `PENDIENTE` = no corrido; `BLOQUEADO` = no se pudo por dep
 | Calles paralelas | PENDIENTE | |
 | Ruta que se cruza a sí misma | PENDIENTE | |
 | Pérdida de GPS | PENDIENTE | |
-| Regreso desde segundo plano | PENDIENTE | Wake Lock: BLOQUEADO hasta WAKE-01 |
+| Regreso desde segundo plano | PENDIENTE | Verificar que Wake Lock se recupere al volver a visible. |
 
 ## iPhone Safari — en auto
 

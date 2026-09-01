@@ -11,6 +11,16 @@ const NASERVER = 'https://route-api.arcgis.com/arcgis/rest/services/World/Route/
 const GET_TRAVEL_MODES =
   'https://route-api.arcgis.com/arcgis/rest/services/World/Utilities/GPServer/GetTravelModes/execute';
 const OAUTH_TOKEN = 'https://www.arcgis.com/sharing/rest/oauth2/token';
+const ROUTING_TIMEOUT_DEFAULT_MS = 8000;
+
+function routingTimeoutMs() {
+  const configured = Number(process.env.ROUTING_HTTP_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : ROUTING_TIMEOUT_DEFAULT_MS;
+}
+
+function timeoutSignal() {
+  return AbortSignal.timeout(routingTimeoutMs());
+}
 
 /** ¿Hay credenciales de ArcGIS configuradas (API key u OAuth de aplicación)? */
 export const hayArcgis = () =>
@@ -45,6 +55,7 @@ async function obtenerToken() {
     method: 'POST',
     headers: cabeceras(),
     body: new URLSearchParams(cuerpo).toString(),
+    signal: timeoutSignal(),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error || !data.access_token) {
@@ -104,6 +115,7 @@ async function pedirJson(url, params) {
     method: 'POST',
     headers: cabeceras(),
     body: new URLSearchParams(params).toString(),
+    signal: timeoutSignal(),
   });
   if (!res.ok) throw new Error(`ArcGIS respondió ${res.status}`);
   const data = await res.json();

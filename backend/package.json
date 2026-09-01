@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test",
+    "test:node": "node --test test/routingTraffic.test.js test/capturaGeometria.test.js",
     "init-db": "node src/scripts/initDb.js",
     "seed-sites": "node src/scripts/seedSites.js",
     "test": "vitest run"

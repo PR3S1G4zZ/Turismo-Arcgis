@@ -184,6 +184,11 @@ En `backend/src/utils/arcgisRouting.js`. Los que importan:
 | `outSR` | `4326` | WGS 84 que preserva el límite `{ lat, lng }` y la geometría del mapa |
 | `startTime` | `"now"`, solo en modo auto | Activa tráfico en vivo — solo se envía si el `travelMode` elegido ya usa `impedanceAttributeName: "TravelTime"` (ver Fase 6 / TRAFFIC-01); si la organización no lo configuró así, no se envía y `traficoAplicado` sale en `false` |
 
+Las llamadas del backend a ArcGIS y al respaldo OSRM tienen un tiempo máximo
+configurable con `ROUTING_HTTP_TIMEOUT_MS` (8 segundos por defecto). Si ArcGIS
+no responde dentro de ese límite, la API cancela la llamada y prueba OSRM sin
+dejar una solicitud colgada indefinidamente.
+
 > ⚠️ ArcGIS devuelve **HTTP 200 incluso cuando falla**; el error viene en el
 > cuerpo. `pedirJson()` lo comprueba y lanza excepción.
 
