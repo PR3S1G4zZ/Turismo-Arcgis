@@ -317,6 +317,11 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   // ahí la cámara de seguimiento acompaña al usuario.
   useEffect(() => {
     if (!mapListo || !previsualizando || !ruta?.puntos || ruta.puntos.length < 2) return;
+    // Captura dev-only del GeoJSON completo entregado a MapLibre (Fase 4 GEOM-01):
+    // inactiva salvo que el humano active window.__capturarGeometria a mano en DevTools.
+    if (import.meta.env.DEV && window.__capturarGeometria === true) {
+      console.log('[captura-geometria] geojson-maplibre', JSON.stringify(lineaGeoJSON(ruta.puntos)));
+    }
     const map = mapRef.current;
     if (!map) return;
     let oeste = Infinity, sur = Infinity, este = -Infinity, norte = -Infinity;

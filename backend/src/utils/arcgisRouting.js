@@ -5,6 +5,7 @@
 // La API key nunca sale del backend: el frontend habla con /api/rutas y este
 // módulo es el único que conoce el token.
 import { config } from '../config.js';
+import { capturarSiCorresponde } from './capturaGeometria.js';
 
 const NASERVER = 'https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World';
 const GET_TRAVEL_MODES =
@@ -177,6 +178,7 @@ async function elegirModo(modo) {
  *   { fuente, puntos: [[lat,lng]…], pasos: [{texto,distanciaM,duracionMin,maniobra}], distanciaM, duracionMin }
  */
 function normalizar(data) {
+  capturarSiCorresponde('arcgis-crudo', data);
   const feature = data.routes?.features?.[0];
   if (!feature?.geometry?.paths?.length) {
     throw new Error('ArcGIS no devolvió geometría de ruta.');
@@ -202,7 +204,9 @@ function normalizar(data) {
   const distanciaM = Number(direccion?.summary?.totalLength) || 0;
   const duracionMin = Number(direccion?.summary?.totalTime) || 0;
 
-  return { fuente: 'arcgis', puntos, pasos, distanciaM, duracionMin };
+  const normalizado = { fuente: 'arcgis', puntos, pasos, distanciaM, duracionMin };
+  capturarSiCorresponde('arcgis-normalizado', normalizado);
+  return normalizado;
 }
 
 // ─── API pública ────────────────────────────────────────────
