@@ -499,6 +499,9 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         onPitchStart={() => {
           if (enSeguimiento) dejarDeSeguir();
         }}
+        onZoomStart={() => {
+          if (enSeguimiento) dejarDeSeguir();
+        }}
         attributionControl={{ compact: true }}
         style={{ width: '100%', height: '100%' }}
       >
@@ -601,11 +604,12 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         </div>
       )}
 
-      {/* Activar la brújula (iOS pide permiso con un toque). Solo se ofrece en el
-          mapa informativo, cuando la plataforma lo exige y aún no se concedió.
-          Si iOS ya lo denegó, ningún toque vuelve a abrir el diálogo nativo —
-          se avisa en vez de dejar un botón que parecería no hacer nada. */}
-      {!mostrarTrayecto && orientacion.necesitaPermiso && (
+      {/* Activar la brújula (iOS pide permiso con un toque). Se mantiene visible
+          también durante una ruta: el usuario puede haber iniciado el
+          seguimiento antes de conceder el permiso. Si iOS ya lo denegó, ningún
+          toque vuelve a abrir el diálogo nativo — se avisa en vez de dejar un
+          botón que parecería no hacer nada. */}
+      {orientacion.necesitaPermiso && (
         orientacion.permiso === 'denegado' ? (
           <p className="map-compass-btn map-compass-btn--denegado" title="Actívalo desde Ajustes del navegador para este sitio">
             <RiCompass3Line />

@@ -15,7 +15,12 @@ let mapProps;
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('./InteractiveMap.css', () => ({}));
 
-const orientationState = vi.hoisted(() => ({ heading: null }));
+const orientationState = vi.hoisted(() => ({
+  heading: null,
+  necesitaPermiso: false,
+  permiso: 'concedido',
+  activar: vi.fn(),
+}));
 
 vi.mock('react-map-gl/maplibre', async () => {
   const React = await import('react');
@@ -38,9 +43,9 @@ vi.mock('react-map-gl/maplibre', async () => {
 vi.mock('../../hooks/useOrientacion', () => ({
   useOrientacion: () => ({
     heading: orientationState.heading,
-    necesitaPermiso: false,
-    permiso: 'concedido',
-    activar: vi.fn(),
+    necesitaPermiso: orientationState.necesitaPermiso,
+    permiso: orientationState.permiso,
+    activar: orientationState.activar,
   }),
 }));
 
@@ -83,6 +88,8 @@ describe('InteractiveMap camera lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     orientationState.heading = null;
+    orientationState.necesitaPermiso = false;
+    orientationState.permiso = 'concedido';
     map.getZoom.mockReturnValue(16);
     map.getBearing.mockReturnValue(23);
   });
@@ -167,6 +174,27 @@ describe('InteractiveMap camera lifecycle', () => {
 
     act(() => mapProps[eventName]());
     expect(screen.getByRole('button', { name: /centrar en mí/i })).toBeTruthy();
+  });
+
+  it('pauses follow on zoom and exposes recenter', async () => {
+    renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(mapProps.onZoomStart).toBeTypeOf('function');
+
+    act(() => mapProps.onZoomStart());
+    expect(screen.getByRole('button', { name: /centrar en mí/i })).toBeTruthy();
+  });
+
+  it('keeps the compass activation action available during live navigation', async () => {
+    orientationState.necesitaPermiso = true;
+    orientationState.permiso = 'pendiente';
+    renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+
+    const boton = screen.getByRole('button', { name: /brújula/i });
+    act(() => boton.click());
+
+    expect(orientationState.activar).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the arrow aligned to the viewport after follow is paused', async () => {
