@@ -13,6 +13,7 @@ import { RiNavigationLine, RiFocus3Line, RiCompass3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 import { useOrientacion } from '../../hooks/useOrientacion';
 import { mapaApi } from '../../utilidades/api';
+import { marcar, medir, MARCAS, TRAMOS } from '../../utilidades/diagnosticoLatencias';
 import './InteractiveMap.css';
 
 // Zoom cercano mientras se navega, para ver la calle y la siguiente esquina.
@@ -90,7 +91,11 @@ function usePosicionAnimada(objetivo, duracionMs = 600) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     let inicio = null;
     const paso = (t) => {
-      if (inicio == null) inicio = t;
+      if (inicio == null) {
+        inicio = t;
+        marcar(MARCAS.MARCADOR_RENDER);
+        medir(TRAMOS.GPS_MARCADOR, MARCAS.GPS_ACEPTADO, MARCAS.MARCADOR_RENDER);
+      }
       const avance = Math.min(1, (t - inicio) / duracionMs);
       const suavizado = 1 - (1 - avance) ** 3; // ease-out cúbico
       const punto = {
@@ -288,6 +293,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     const map = mapRef.current;
     if (!map) return;
     map.stop();
+    marcar(MARCAS.CAMARA_ACTUALIZADA);
     map.easeTo({
       center: [userPosition.lng, userPosition.lat],
       bearing: Number.isFinite(userPosition.heading) ? userPosition.heading : map.getBearing(),
@@ -295,7 +301,20 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       zoom: Math.max(map.getZoom(), ZOOM_NAVEGACION),
       duration: 250,
     });
+    medir(TRAMOS.GPS_CAMARA, MARCAS.GPS_ACEPTADO, MARCAS.CAMARA_ACTUALIZADA);
   }, [mapListo, enSeguimiento, siguiendo, userPosition]);
+
+  useEffect(() => {
+    if (orientacion.heading == null) return;
+    marcar(MARCAS.FLECHA_RENDER);
+    medir(TRAMOS.ORIENTACION_FLECHA, MARCAS.ORIENTACION_CAMBIO, MARCAS.FLECHA_RENDER);
+  }, [orientacion.heading]);
+
+  useEffect(() => {
+    if (!mostrarTrayecto || !tramos?.restante?.length) return;
+    marcar(MARCAS.RUTA_RENDERIZADA);
+    medir(TRAMOS.RESPUESTA_RUTA_RENDERIZADA, MARCAS.RESPUESTA_RECIBIDA, MARCAS.RUTA_RENDERIZADA);
+  }, [mostrarTrayecto, tramos]);
 
   // La vista informativa se inicializa una vez; las lecturas GPS posteriores no
   // deben pelear con quien explora el mapa. Al salir de navegación, además,
