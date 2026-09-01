@@ -22,8 +22,12 @@ const ESTADOS_CON_AVISO = new Set([
 
 function obtenerWakeLock() {
   if (typeof navigator === 'undefined') return null;
-  const wakeLock = navigator.wakeLock;
-  return wakeLock && typeof wakeLock.request === 'function' ? wakeLock : null;
+  try {
+    const wakeLock = navigator.wakeLock;
+    return wakeLock && typeof wakeLock.request === 'function' ? wakeLock : null;
+  } catch {
+    return null;
+  }
 }
 
 function documentoVisible() {
@@ -56,8 +60,13 @@ export function useWakeLock(solicitado) {
   const [estado, setEstado] = useState(WAKE_LOCK_ESTADOS.INACTIVO);
 
   const limpiarListenerRelease = useCallback(() => {
-    if (limpiarReleaseRef.current) limpiarReleaseRef.current();
+    const limpiar = limpiarReleaseRef.current;
     limpiarReleaseRef.current = null;
+    try {
+      limpiar?.();
+    } catch {
+      // Un sentinel defectuoso no debe impedir liberar el resto del ciclo.
+    }
   }, []);
 
   const liberarSentinelActual = useCallback(() => {
@@ -112,13 +121,18 @@ export function useWakeLock(solicitado) {
         return;
       }
 
+      if (sentinel.released) {
+        setEstado(WAKE_LOCK_ESTADOS.LIBERADO);
+        return;
+      }
+
       sentinelRef.current = sentinel;
       const handleRelease = () => {
         // Un release manual limpia la ref antes de llamar a release(), por lo
         // que este camino solo representa una liberación externa del sistema.
         if (sentinelRef.current !== sentinel) return;
         sentinelRef.current = null;
-        limpiarReleaseRef.current = null;
+        limpiarListenerRelease();
         setEstado(WAKE_LOCK_ESTADOS.LIBERADO);
       };
 

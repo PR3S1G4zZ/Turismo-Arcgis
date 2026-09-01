@@ -93,6 +93,7 @@ describe('useWakeLock', () => {
     act(() => primero.emitirRelease());
     await waitFor(() => expect(result.current.estado).toBe(WAKE_LOCK_ESTADOS.LIBERADO));
     expect(result.current.necesitaAviso).toBe(true);
+    expect(primero.removeEventListener).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
 
     definirVisibilidad('hidden');
