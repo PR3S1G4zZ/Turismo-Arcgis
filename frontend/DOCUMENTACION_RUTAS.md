@@ -136,8 +136,28 @@ Respuesta normalizada (idéntica venga de ArcGIS o de OSRM):
   "pasos": [{ "texto": "Gira a la derecha hacia Carrera 55",
               "distanciaM": 872, "duracionMin": 10.4, "maniobra": "…" }],
   "distanciaM": 2042,
-  "duracionMin": 24.5 }
+  "duracionMin": 24.5,
+  "traficoSolicitado": true,
+  "traficoAplicado": true,
+  "degradacionTrafico": null }
 ```
+
+`traficoSolicitado`/`traficoAplicado` (agregados en la Fase 6 — TRAFFIC-01) solo
+pueden ser `true` en modo `car` con ArcGIS como proveedor activo. `walk` y el
+respaldo OSRM siempre devuelven ambos en `false`, explícitamente — nunca se
+omiten ni se simula tráfico inexistente. Pueden diferir entre sí: `traficoSolicitado:
+true, traficoAplicado: false` significa que se pidió una ruta en auto pero el
+`travelMode` configurado en esta organización de ArcGIS no tiene impedancia de
+tráfico (`impedanceAttributeName: "TravelTime"`) — degradación clara por falta
+de soporte configurado, no un fallo silencioso. `traficoAplicado: true`
+confirma que ArcGIS aceptó la solicitud compatible con tráfico; no garantiza
+datos en vivo para cada calle del trayecto.
+
+`degradacionTrafico` es `null` cuando no hay degradación. Para una ruta en auto
+sin tráfico explica la causa comprobable: `travel-mode-sin-impedancia-de-trafico`
+si ArcGIS no expone `TravelTime`, o `proveedor-osrm-sin-trafico` si se usó el
+respaldo. El contrato no afirma cobertura calle por calle ni costos que la
+respuesta de ArcGIS no permita comprobar.
 
 `puntos` va en `[lat, lng]` como límite de la aplicación. ArcGIS entrega
 `[x, y]` = `[lng, lat]`; la conversión se hace en el backend. MapLibre recibe
@@ -162,6 +182,7 @@ En `backend/src/utils/arcgisRouting.js`. Los que importan:
 | `directionsLengthUnits` | `esriNAUMeters` | Evita convertir millas en el cliente |
 | `outputLines` | `esriNAOutputLineTrueShape` | Geometría real de la calle, no una recta entre paradas |
 | `outSR` | `4326` | WGS 84 que preserva el límite `{ lat, lng }` y la geometría del mapa |
+| `startTime` | `"now"`, solo en modo auto | Activa tráfico en vivo — solo se envía si el `travelMode` elegido ya usa `impedanceAttributeName: "TravelTime"` (ver Fase 6 / TRAFFIC-01); si la organización no lo configuró así, no se envía y `traficoAplicado` sale en `false` |
 
 > ⚠️ ArcGIS devuelve **HTTP 200 incluso cuando falla**; el error viene en el
 > cuerpo. `pedirJson()` lo comprueba y lanza excepción.
