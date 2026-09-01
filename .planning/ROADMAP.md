@@ -15,7 +15,7 @@ Este milestone endurece la navegación en tiempo real ya existente (GPS, flecha,
 - [ ] **Phase 2: Flecha, rumbo y cámara desacoplados** - Estados independientes de GPS/rumbo/brújula/flecha/cámara; un gesto pausa solo la cámara
 - [ ] **Phase 3: Desvíos y recálculo adaptativo** - Detección de desvío con histéresis multi-señal; sin recortar umbrales sin analizar por qué existen
 - [ ] **Phase 4: Fidelidad de curvas y rotondas** - Verificar el pipeline geométrico real antes de tocar el renderizado; geometría cruda como fuente de verdad
-- [ ] **Phase 5: Mantener la pantalla activa** - Screen Wake Lock aislado, con reintento tras segundo plano y degradación segura
+- [x] **Phase 5: Mantener la pantalla activa** - Screen Wake Lock aislado, con reintento tras segundo plano y degradación segura (completed 2026-09-01)
 - [ ] **Phase 6: Tráfico ArcGIS** - Ruteo sensible al tráfico en auto + investigación de capa visual detrás de feature flag (requiere `--research`)
 - [ ] **Phase 7: Endurecimiento y UAT** - Suite de pruebas en verde + UAT físico en Android Chrome e iPhone Safari
 
@@ -153,6 +153,6 @@ Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Flecha, rumbo y cámara desacoplados | 0/TBD | Not started | - |
 | 3. Desvíos y recálculo adaptativo | 0/TBD | Not started | - |
 | 4. Fidelidad de curvas y rotondas | 1/2 | Awaiting human capture | - |
-| 5. Mantener la pantalla activa | 0/TBD | Not started | - |
+| 5. Mantener la pantalla activa | 1/1 | Complete    | 2026-09-01 |
 | 6. Tráfico ArcGIS | 0/TBD | Not started | - |
 | 7. Endurecimiento y UAT | 0/TBD | Not started | - |

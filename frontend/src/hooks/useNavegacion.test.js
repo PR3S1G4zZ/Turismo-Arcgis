@@ -1,7 +1,11 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { resolver, precisionArgs } = vi.hoisted(() => ({ resolver: vi.fn(), precisionArgs: [] }));
+const { resolver, precisionArgs, wakeLockDemandas } = vi.hoisted(() => ({
+  resolver: vi.fn(),
+  precisionArgs: [],
+  wakeLockDemandas: [],
+}));
 let gps;
 
 vi.mock('../utilidades/api', () => ({ rutasApi: { resolver } }));
@@ -9,6 +13,17 @@ vi.mock('./useGeolocation', () => ({
   useGeolocation: (options) => {
     precisionArgs.push(options);
     return gps;
+  },
+}));
+vi.mock('./useWakeLock', () => ({
+  useWakeLock: (solicitado) => {
+    wakeLockDemandas.push(solicitado);
+    return {
+      estado: solicitado ? 'activo' : 'inactivo',
+      activo: solicitado,
+      necesitaAviso: false,
+      mensaje: 'wake lock test',
+    };
   },
 }));
 
@@ -42,9 +57,14 @@ const cambiarGps = (rerender, position, timestamp) => {
 };
 
 describe('useNavegacion', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     resolver.mockReset();
     precisionArgs.length = 0;
+    wakeLockDemandas.length = 0;
     resolver.mockResolvedValue(route);
     gps = {
       position: { lat: 0, lng: 0, accuracy: 10 },
@@ -72,6 +92,8 @@ describe('useNavegacion', () => {
       'Destino B',
     );
     await waitFor(() => expect(result.current.avanceRuta).toMatchObject({ indice: 0 }));
+    expect(result.current.wakeLock).toEqual(expect.objectContaining({ activo: true }));
+    expect(wakeLockDemandas).toContain(true);
   });
 
   it('keeps a manual origin route as a static preview', async () => {
@@ -83,6 +105,8 @@ describe('useNavegacion', () => {
     await waitFor(() => expect(result.current.estado).toBe('previsualizando'));
     expect(resolver).toHaveBeenCalledTimes(1);
     expect(result.current.fueraDeRuta).toBe(false);
+    expect(result.current.wakeLock).toEqual(expect.objectContaining({ activo: false }));
+    expect(wakeLockDemandas.every((solicitado) => solicitado === false)).toBe(true);
 
     gps = { ...gps, position: { lat: 2, lng: 2 } };
     rerender();

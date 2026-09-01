@@ -29,7 +29,7 @@
 
 ### Pantalla Activa (WAKE)
 
-- [ ] **WAKE-01**: Screen Wake Lock durante navegación activa — adquisición al iniciar, liberación al llegar/cancelar/error/desmontar, reintento al volver de segundo plano (`visibilityState`), degradación segura sin soporte del navegador
+- [x] **WAKE-01**: Screen Wake Lock durante navegación activa — adquisición al iniciar, liberación al llegar/cancelar/error/desmontar, reintento al volver de segundo plano (`visibilityState`), degradación segura sin soporte del navegador
 
 ### Tráfico ArcGIS (TRAFFIC)
 
@@ -74,13 +74,14 @@ Diferido a futuro. No mapeado al roadmap actual.
 | RECALC-02 | Phase 3 | Pending |
 | GEOM-01 | Phase 4 | Pending |
 | GEOM-02 | Phase 4 | Pending |
-| WAKE-01 | Phase 5 | Pending |
+| WAKE-01 | Phase 5 | Complete |
 | TRAFFIC-01 | Phase 6 | Pending |
 | TRAFFIC-02 | Phase 6 | Pending |
 | HARDEN-01 | Phase 7 | Pending |
 | HARDEN-02 | Phase 7 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 15 total
 - Mapped to phases: 15
 - Unmapped: 0 ✓

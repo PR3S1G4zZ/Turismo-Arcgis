@@ -12,6 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { rutasApi } from '../utilidades/api';
 import { useGeolocation } from './useGeolocation';
+import { useWakeLock } from './useWakeLock';
 import {
   prepararRuta,
   localizarEnRuta,
@@ -214,6 +215,7 @@ function puntoDeSitio(sitio) {
 
 export function useNavegacion() {
   const [estado, setEstado] = useState('inactivo'); // inactivo | calculando | previsualizando | navegando | llegado | error
+  const wakeLock = useWakeLock(estado === 'calculando' || estado === 'navegando');
 
   // Alta precisión (más batería) solo mientras hay una ruta en curso; el resto
   // del tiempo (p. ej. "Zona Actual" en Home) basta con la ubicación gruesa.
@@ -567,6 +569,7 @@ export function useNavegacion() {
 
     // Estado de la navegación
     estado,
+    wakeLock,
     activa: estado === 'calculando' || estado === 'previsualizando' || estado === 'navegando' || estado === 'llegado',
     navegando: estado === 'navegando',
     previsualizando: estado === 'previsualizando',
