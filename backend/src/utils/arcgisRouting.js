@@ -12,6 +12,9 @@ const GET_TRAVEL_MODES =
   'https://route-api.arcgis.com/arcgis/rest/services/World/Utilities/GPServer/GetTravelModes/execute';
 const OAUTH_TOKEN = 'https://www.arcgis.com/sharing/rest/oauth2/token';
 const ROUTING_TIMEOUT_DEFAULT_MS = 8000;
+const RETURN_STOPS = true;
+const PRESERVE_FIRST_STOP = true;
+const PRESERVE_LAST_STOP = true;
 
 function routingTimeoutMs() {
   const configured = Number(process.env.ROUTING_HTTP_TIMEOUT_MS);
@@ -20,6 +23,32 @@ function routingTimeoutMs() {
 
 function timeoutSignal() {
   return AbortSignal.timeout(routingTimeoutMs());
+}
+
+/**
+ * Clasifica un fallo sin devolver ni registrar el texto del proveedor.
+ * ArcGIS puede incluir detalles de autenticación o de la petición en sus
+ * mensajes; la observabilidad solo necesita una categoría estable.
+ */
+export function categoriaFalloSeguro(error) {
+  const nombre = String(error?.name || '').toLowerCase();
+  const mensaje = String(error?.message || '').toLowerCase();
+  if (nombre === 'aborterror' || mensaje.includes('timeout') || mensaje.includes('timed out')) {
+    return 'timeout';
+  }
+  if (
+    mensaje.includes('network')
+    || mensaje.includes('fetch')
+    || mensaje.includes('econn')
+    || mensaje.includes('enotfound')
+    || mensaje.includes('socket')
+  ) {
+    return 'network';
+  }
+  if (/\bhttp(?: error)?\s*\d{3}\b/.test(mensaje) || mensaje.includes('respondió')) {
+    return 'http';
+  }
+  return 'provider';
 }
 
 /** ¿Hay credenciales de ArcGIS configuradas (API key u OAuth de aplicación)? */
@@ -122,7 +151,9 @@ async function obtenerModos() {
     const data = await pedirJson(NASERVER, { f: 'json', token });
     if (Array.isArray(data.supportedTravelModes)) modos = data.supportedTravelModes;
   } catch (err) {
-    console.warn('[arcgis] No se pudieron leer los modos desde NAServer:', err.message);
+    console.warn('[arcgis] No se pudieron leer los modos desde NAServer:', {
+      categoria: categoriaFalloSeguro(err),
+    });
   }
 
   // 2) Servicio de utilidades como alternativa.
@@ -137,7 +168,9 @@ async function obtenerModos() {
         })
         .filter(Boolean);
     } catch (err) {
-      console.warn('[arcgis] No se pudieron leer los modos desde GetTravelModes:', err.message);
+      console.warn('[arcgis] No se pudieron leer los modos desde GetTravelModes:', {
+        categoria: categoriaFalloSeguro(err),
+      });
     }
   }
 
@@ -183,9 +216,9 @@ function modoSoportaTrafico(travelMode) {
 // ─── Normalización de la respuesta ──────────────────────────
 
 /**
- * Convierte la respuesta cruda de /solve al formato interno:
- *   { fuente, puntos: [[lat,lng]…], pasos: [{texto,distanciaM,duracionMin,maniobra}], distanciaM, duracionMin,
- *     traficoSolicitado, traficoAplicado, degradacionTrafico }
+ * Convierte la respuesta cruda de /solve al formato interno. Además de la
+ * geometría y las indicaciones, conserva únicamente metadatos de proveedor
+ * seguros: modo solicitado/usado, advertencias y el resumen de paradas.
  * @param {object} data Respuesta cruda de ArcGIS.
  * @param {{traficoSolicitado?: boolean, traficoAplicado?: boolean, degradacionTrafico?: string|null}} [trafico]
  * Estado de tráfico de esta resolución.
@@ -194,6 +227,12 @@ function normalizar(data, {
   traficoSolicitado = false,
   traficoAplicado = false,
   degradacionTrafico = null,
+  travelModeSolicitado = null,
+  travelModeUtilizado = null,
+  advertencias = [],
+  ajustesParadas = {},
+  origen = null,
+  destino = null,
 } = {}) {
   capturarSiCorresponde('arcgis-crudo', data);
   const feature = data.routes?.features?.[0];
@@ -221,8 +260,52 @@ function normalizar(data, {
   const distanciaM = Number(direccion?.summary?.totalLength) || 0;
   const duracionMin = Number(direccion?.summary?.totalTime) || 0;
 
+  const paradasDevueltas = Array.isArray(data.stops?.features) ? data.stops.features : [];
+  const estadosParadas = paradasDevueltas.map((parada) => (
+    String(parada.attributes?.Status ?? parada.attributes?.status ?? 'desconocido')
+  ));
+  const advertenciasFinales = [...advertencias];
+  if (ajustesParadas.returnStops && paradasDevueltas.length === 0) {
+    advertenciasFinales.push('paradas-no-devueltas');
+  }
+  if (estadosParadas.some((estado) => estado.toLowerCase() !== 'ok')) {
+    advertenciasFinales.push('paradas-con-incidencias');
+  }
+  const coordenadasSolicitadas = [origen, destino].filter(Boolean);
+  const paradasOrdenadas = [...paradasDevueltas].sort((a, b) => (
+    Number(a.attributes?.Sequence ?? a.attributes?.sequence ?? 0)
+    - Number(b.attributes?.Sequence ?? b.attributes?.sequence ?? 0)
+  ));
+  const coordenadasDevueltas = paradasOrdenadas.map((parada) => ({
+    lat: Number(parada.geometry?.y),
+    lng: Number(parada.geometry?.x),
+  }));
+  const geometriaValida = coordenadasDevueltas.length > 0
+    && coordenadasDevueltas.every(({ lat, lng }) => Number.isFinite(lat) && Number.isFinite(lng));
+  const ajustadas = geometriaValida && coordenadasDevueltas.length === coordenadasSolicitadas.length
+    ? coordenadasDevueltas.some((parada, index) => (
+      Math.abs(parada.lat - coordenadasSolicitadas[index].lat) > 1e-7
+      || Math.abs(parada.lng - coordenadasSolicitadas[index].lng) > 1e-7
+    ))
+    : null;
+
   const normalizado = {
     fuente: 'arcgis',
+    fallbackAplicado: false,
+    motivo: null,
+    travelModeSolicitado,
+    travelModeUtilizado,
+    advertencias: advertenciasFinales,
+    returnStops: Boolean(ajustesParadas.returnStops),
+    ajustesParadas: {
+      returnStops: Boolean(ajustesParadas.returnStops),
+      preserveFirstStop: Boolean(ajustesParadas.preserveFirstStop),
+      preserveLastStop: Boolean(ajustesParadas.preserveLastStop),
+      solicitadas: Number(ajustesParadas.solicitadas) || 0,
+      devueltas: paradasDevueltas.length,
+      estados: estadosParadas,
+      ajustadas,
+    },
     puntos,
     pasos,
     distanciaM,
@@ -248,7 +331,7 @@ export async function resolverRutaArcgis(origen, destino, modo, nombreDestino) {
     return await solve(origen, destino, modo, nombreDestino);
   } catch (err) {
     // Token vencido o revocado: se descarta y se reintenta una vez con uno nuevo.
-    if (/token/i.test(err.message) && !config.arcgis.apiKey) {
+    if (/token/i.test(String(err?.message || '')) && !config.arcgis.apiKey) {
       descartarToken();
       return solve(origen, destino, modo, nombreDestino);
     }
@@ -291,6 +374,9 @@ async function solve(origen, destino, modo, nombreDestino) {
   const degradacionTrafico = traficoSolicitado && !traficoAplicado
     ? 'travel-mode-sin-impedancia-de-trafico'
     : null;
+  const advertencias = [];
+  if (!travelMode) advertencias.push('travel-mode-no-resuelto');
+  if (degradacionTrafico) advertencias.push('trafico-no-aplicado');
 
   const params = {
     f: 'json',
@@ -298,7 +384,12 @@ async function solve(origen, destino, modo, nombreDestino) {
     stops: construirParadas(origen, destino, nombreDestino),
     returnRoutes: 'true',
     returnDirections: 'true',
-    returnStops: 'false',
+    // Se solicita de forma explícita para poder auditar Status/Sequence y
+    // detectar si ArcGIS ajustó una parada al entramado vial.
+    returnStops: String(RETURN_STOPS),
+    findBestSequence: 'false',
+    preserveFirstStop: String(PRESERVE_FIRST_STOP),
+    preserveLastStop: String(PRESERVE_LAST_STOP),
     returnBarriers: 'false',
     returnPolygonBarriers: 'false',
     returnPolylineBarriers: 'false',
@@ -317,5 +408,20 @@ async function solve(origen, destino, modo, nombreDestino) {
   }
 
   const data = await pedirJson(`${NASERVER}/solve`, params);
-  return normalizar(data, { traficoSolicitado, traficoAplicado, degradacionTrafico });
+  return normalizar(data, {
+    traficoSolicitado,
+    traficoAplicado,
+    degradacionTrafico,
+    travelModeSolicitado: modo,
+    travelModeUtilizado: travelMode?.name || null,
+    advertencias,
+    ajustesParadas: {
+      returnStops: RETURN_STOPS,
+      preserveFirstStop: PRESERVE_FIRST_STOP,
+      preserveLastStop: PRESERVE_LAST_STOP,
+      solicitadas: 2,
+    },
+    origen,
+    destino,
+  });
 }

@@ -3,8 +3,8 @@
 // habla directo con Esri: pide aquí y recibe la ruta ya normalizada.
 //
 // POST /api/rutas/resolver  { origen:{lat,lng}, destino:{lat,lng}, modo:'walk'|'car' }
-//   → { fuente, puntos:[[lat,lng]…], pasos:[…], distanciaM, duracionMin,
-//       traficoSolicitado, traficoAplicado, degradacionTrafico }
+//   → { fuente, fallbackAplicado, motivo, travelModeSolicitado,
+//       travelModeUtilizado, advertencias, ajustesParadas, puntos, pasos,… }
 //   traficoSolicitado/traficoAplicado solo aplican a modo='car' con ArcGIS
 //   como proveedor; en cualquier otro caso (a pie, o respaldo OSRM) van en
 //   false explícitamente. degradacionTrafico explica por qué una ruta en auto
@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler } from '../utils/http.js';
-import { hayArcgis, resolverRutaArcgis } from '../utils/arcgisRouting.js';
+import { categoriaFalloSeguro, hayArcgis, resolverRutaArcgis } from '../utils/arcgisRouting.js';
 import { resolverRutaOsrm } from '../utils/osrmRouting.js';
 
 export const routingRouter = Router();
@@ -27,6 +27,27 @@ const limitador = rateLimit({
   legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes de ruta. Espera un momento e inténtalo de nuevo.' },
 });
+
+function resumenObservabilidad({ fuente, fallbackAplicado, motivo, modo, advertencias = [] }) {
+  return {
+    fuente,
+    fallbackAplicado,
+    motivo,
+    travelModeSolicitado: modo,
+    travelModeUtilizado: null,
+    advertencias,
+    returnStops: false,
+    ajustesParadas: {
+      returnStops: false,
+      preserveFirstStop: false,
+      preserveLastStop: false,
+      solicitadas: 2,
+      devueltas: 0,
+      estados: [],
+      ajustadas: null,
+    },
+  };
+}
 
 /** Valida y normaliza un punto {lat,lng} recibido del cliente. */
 function leerPunto(valor, nombre) {
@@ -57,23 +78,55 @@ routingRouter.post('/resolver', limitador, asyncHandler(async (req, res) => {
   const nombreDestino = String(req.body?.nombreDestino || '').trim().slice(0, 80);
 
   // 1) ArcGIS, si hay credenciales.
+  let motivoFallback = 'arcgis-no-configurado';
+  let advertenciasFallback = ['arcgis-no-configurado'];
   if (hayArcgis()) {
     try {
       const ruta = await resolverRutaArcgis(origen, destino, modo, nombreDestino);
-      return res.json(ruta);
+      return res.json({
+        ...ruta,
+        fuente: 'arcgis',
+        fallbackAplicado: false,
+        motivo: null,
+      });
     } catch (err) {
-      console.warn('[rutas] ArcGIS falló, se usa el respaldo OSRM:', err.message);
+      const categoria = categoriaFalloSeguro(err);
+      motivoFallback = 'arcgis-fallo';
+      advertenciasFallback = ['arcgis-fallo', `arcgis-fallo-${categoria}`];
+      console.warn('[rutas] ArcGIS falló; se usa el respaldo OSRM.', {
+        motivo: motivoFallback,
+        categoria,
+      });
     }
+  } else {
+    console.warn('[rutas] ArcGIS no configurado; se usa el respaldo OSRM.', {
+      motivo: motivoFallback,
+    });
   }
 
   // 2) Respaldo OSRM.
   try {
-    const ruta = await resolverRutaOsrm(origen, destino, modo);
+    const ruta = await resolverRutaOsrm(origen, destino, modo, {
+      fallbackAplicado: true,
+      motivo: motivoFallback,
+      advertencias: [...advertenciasFallback, 'osrm-fallback'],
+    });
     return res.json(ruta);
   } catch (err) {
-    console.error('[rutas] Ningún servicio de ruteo respondió:', err.message);
+    const categoria = categoriaFalloSeguro(err);
+    console.error('[rutas] Ningún servicio de ruteo respondió.', {
+      motivo: 'servicios-no-disponibles',
+      categoria,
+    });
     return res.status(502).json({
       error: 'No se pudo calcular la ruta en este momento. Inténtalo de nuevo en unos segundos.',
+      ...resumenObservabilidad({
+        fuente: null,
+        fallbackAplicado: true,
+        motivo: 'servicios-no-disponibles',
+        modo,
+        advertencias: [...advertenciasFallback, 'osrm-fallo', `osrm-fallo-${categoria}`],
+      }),
     });
   }
 }));
