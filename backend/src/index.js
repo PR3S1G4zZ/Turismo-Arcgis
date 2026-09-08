@@ -42,13 +42,18 @@ app.set('trust proxy', 1);
 // Nominatim desde el propio navegador (no pasa por el backend).
 //
 // El mapa usa MapLibre GL con el basemap vectorial de ArcGIS (con respaldo
-// raster de OpenStreetMap). MapLibre pide tiles/glyphs/sprites por fetch (connect-src) y también
-// como imágenes (img-src), y corre su render en web workers (worker-src blob:).
+// raster de OpenStreetMap). MapLibre pide estilos, tiles, glyphs y sprites por
+// fetch (connect-src) y algunos recursos como imágenes (img-src); el render
+// corre en web workers (worker-src blob:). Se enumeran los hosts conocidos del
+// Basemap Styles service y se conserva el comodín ArcGIS para URLs de tiles que
+// Esri devuelve dinámicamente en el estilo.
 const HOSTS_MAPA = [
   'https://tile.openstreetmap.org',
   'https://*.basemaps.cartocdn.com',
   'https://basemaps.cartocdn.com',
   'https://basemapstyles-api.arcgis.com',
+  'https://basemaps-api.arcgis.com',
+  'https://basemaps.arcgis.com',
   'https://ibasemaps-api.arcgis.com',
   'https://static-map-tiles-api.arcgis.com',
   'https://*.arcgis.com',
@@ -152,4 +157,8 @@ async function start() {
   });
 }
 
-start();
+export { app };
+
+// Permite probar headers/middleware sin abrir un servidor ni intentar conectar
+// MySQL al importar el módulo. `npm start` sigue ejecutando el arranque normal.
+if (process.argv[1] === fileURLToPath(import.meta.url)) start();

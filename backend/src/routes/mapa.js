@@ -1,14 +1,14 @@
 // backend/src/routes/mapa.js
-// Token de basemap para el cliente. El frontend dibuja el mapa con MapLibre GL
-// sobre el basemap vectorial de ArcGIS, que se autentica con un token de ArcGIS.
-// Aquí se entrega uno de corta duración (el mismo token de aplicación que ya usa
-// el ruteo). Si no hay credenciales, se responde 204 y el cliente cae al basemap
-// de respaldo raster sin credenciales, igual que el ruteo cae a OSRM.
+// Credencial pública de basemap para el cliente. El frontend dibuja el mapa con
+// MapLibre GL sobre el estilo vectorial oficial de ArcGIS. Esta key es distinta
+// de las credenciales privadas de routing y solo puede tener privilegio Basemaps.
+// Nunca se genera ni se entrega aquí un OAuth token de routing.
 //
-// GET /api/mapa/token → { token, expiraEn } | 204 si no hay ArcGIS configurado.
+// GET /api/mapa/token → { token } | { token:null, motivo }.
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { hayArcgis, obtenerTokenBasemap } from '../utils/arcgisRouting.js';
+import { hayArcgis } from '../utils/arcgisRouting.js';
+import { config } from '../config.js';
 
 export const mapaRouter = Router();
 
@@ -20,16 +20,28 @@ const limitador = rateLimit({
   message: { error: 'Demasiadas solicitudes de token de mapa. Espera un momento.' },
 });
 
-mapaRouter.get('/token', limitador, async (_req, res) => {
-  if (!hayArcgis()) return res.status(204).end();
-  try {
-    const { token, expiraEn } = await obtenerTokenBasemap();
-    // Cache corto en el navegador: no hace falta pedirlo en cada montaje del mapa.
-    res.set('Cache-Control', 'private, max-age=300');
-    return res.json({ token, expiraEn });
-  } catch (err) {
-    console.warn('[mapa] No se pudo obtener el token de basemap de ArcGIS:', err.message);
-    // La ausencia de token le dice al cliente "usa el basemap de respaldo".
-    return res.status(204).end();
+mapaRouter.get('/token', limitador, (_req, res) => {
+  // Cache corto en el navegador: no hace falta pedir la key pública en cada
+  // montaje del mapa. La respuesta no incluye ninguna credencial de routing.
+  res.set('Cache-Control', 'private, max-age=300');
+  if (!config.arcgis.basemapApiKey) {
+    return res.json({
+      token: null,
+      proveedor: 'osm-fallback',
+      motivo: 'not-configured',
+    });
   }
+  return res.json({ token: config.arcgis.basemapApiKey, proveedor: 'arcgis', motivo: null });
+});
+
+// Diagnóstico agregado: no devuelve tokens, secretos ni coordenadas. El estado
+// de routing es nominal; la respuesta real de /api/rutas/estado sigue siendo
+// la fuente de verdad después de un fallo durante una resolución.
+mapaRouter.get('/estado', (_req, res) => {
+  const basemapActivo = Boolean(config.arcgis.basemapApiKey);
+  res.json({
+    basemap: basemapActivo ? 'arcgis' : 'osm-fallback',
+    motivoBasemap: basemapActivo ? null : 'not-configured',
+    proveedorRutas: hayArcgis() ? 'arcgis' : 'osrm',
+  });
 });

@@ -51,10 +51,16 @@ export const config = {
     expiresIn: process.env.JWT_EXPIRES_IN || '8h',
   },
 
-  // Servicio de rutas de ArcGIS. Admite API key directa o credenciales OAuth de
-  // aplicación (client_id/secret), con las que el backend genera el token solo.
-  // Sin ninguna de las dos, el ruteo cae al respaldo OSRM.
+  // Basemap y routing usan credenciales separadas. La API key del basemap es
+  // pública por diseño (el navegador la necesita) y debe tener únicamente el
+  // privilegio Basemaps, además de referrers restringidos en ArcGIS Online.
+  // Nunca reutilizar aquí una API key/OAuth de routing.
   arcgis: {
+    basemapApiKey: process.env.ARCGIS_BASEMAP_API_KEY || '',
+
+    // Servicio de rutas. Admite API key directa o credenciales OAuth de
+    // aplicación (client_id/secret), con las que el backend genera el token
+    // solo. Sin ninguna de las dos, el ruteo cae al respaldo OSRM.
     apiKey: process.env.ARCGIS_API_KEY || '',
     clientId: process.env.ARCGIS_CLIENT_ID || '',
     clientSecret: process.env.ARCGIS_CLIENT_SECRET || '',

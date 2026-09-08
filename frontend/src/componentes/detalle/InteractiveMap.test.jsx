@@ -7,6 +7,9 @@ const map = {
   stop: vi.fn(),
   easeTo: vi.fn(),
   fitBounds: vi.fn(),
+  addControl: vi.fn(),
+  removeControl: vi.fn(),
+  setStyle: vi.fn(),
   getZoom: vi.fn(() => 16),
   getBearing: vi.fn(() => 23),
   cooperativeGestures: { enable: vi.fn(), disable: vi.fn() },
@@ -24,6 +27,17 @@ const orientationState = vi.hoisted(() => ({
   activar: vi.fn(),
 }));
 
+const basemapState = vi.hoisted(() => ({
+  applyStyle: vi.fn(() => ({
+    on: vi.fn(),
+    updateStyle: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+const mapaApiMock = vi.hoisted(() => ({
+  token: vi.fn().mockResolvedValue({ token: 'basemap-test-key', motivo: null }),
+}));
+
 vi.mock('react-map-gl/maplibre', async () => {
   const React = await import('react');
   return {
@@ -38,9 +52,14 @@ vi.mock('react-map-gl/maplibre', async () => {
     Popup: ({ children }) => <>{children}</>,
     Source: ({ children }) => <>{children}</>,
     Layer: () => null,
+    AttributionControl: () => null,
     NavigationControl: () => null,
   };
 });
+
+vi.mock('@esri/maplibre-arcgis', () => ({
+  BasemapStyle: { applyStyle: basemapState.applyStyle },
+}));
 
 vi.mock('../../hooks/useOrientacion', () => ({
   useOrientacion: () => ({
@@ -52,7 +71,7 @@ vi.mock('../../hooks/useOrientacion', () => ({
   }),
 }));
 
-vi.mock('../../utilidades/api', () => ({ mapaApi: { token: vi.fn().mockResolvedValue('token') } }));
+vi.mock('../../utilidades/api', () => ({ mapaApi: mapaApiMock }));
 
 import { InteractiveMap } from './InteractiveMap';
 
@@ -82,6 +101,110 @@ function renderMap(value, props = { showRoute: true }) {
   );
 }
 
+describe('InteractiveMap basemap ArcGIS Navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    document.documentElement.classList.remove('dark');
+    mapaApiMock.token.mockResolvedValue({ token: 'basemap-test-key', motivo: null });
+  });
+
+  afterEach(() => {
+    document.documentElement.classList.remove('dark');
+    cleanup();
+  });
+
+  it('uses the official light Navigation style in Spanish without requesting OSM first', async () => {
+    renderMap(navigation());
+
+    await waitFor(() => expect(basemapState.applyStyle).toHaveBeenCalled());
+    expect(basemapState.applyStyle).toHaveBeenCalledWith(
+      map,
+      expect.objectContaining({
+        style: 'arcgis/navigation',
+        token: 'basemap-test-key',
+        preferences: { language: 'es' },
+        attributionControl: { compact: true },
+      }),
+    );
+    expect(mapProps.mapStyle.sources).toEqual({});
+    expect(mapProps.transformRequest).toBeUndefined();
+  });
+
+  it('uses Navigation Night when the document theme is dark', async () => {
+    document.documentElement.classList.add('dark');
+    renderMap(navigation());
+
+    await waitFor(() => expect(basemapState.applyStyle).toHaveBeenCalled());
+    expect(basemapState.applyStyle).toHaveBeenCalledWith(
+      map,
+      expect.objectContaining({
+        style: 'arcgis/navigation-night',
+        preferences: { language: 'es' },
+      }),
+    );
+  });
+
+  it('updates the official style when the theme changes', async () => {
+    const view = renderMap(navigation());
+    await waitFor(() => expect(basemapState.applyStyle).toHaveBeenCalled());
+    const basemap = basemapState.applyStyle.mock.results[0].value;
+
+    act(() => document.documentElement.classList.add('dark'));
+
+    await waitFor(() => expect(basemap.updateStyle).toHaveBeenCalledWith({
+      style: 'arcgis/navigation-night',
+      preferences: { language: 'es' },
+    }));
+    expect(view.container.querySelector('[data-basemap-style="arcgis/navigation-night"]')).not.toBeNull();
+  });
+
+  it('reports a network fallback from the basemap credential endpoint', async () => {
+    mapaApiMock.token.mockResolvedValueOnce({ token: null, motivo: 'network', status: null });
+    renderMap(navigation());
+
+    expect(await screen.findByText(/No se pudo contactar ArcGIS/i)).toBeTruthy();
+    expect(document.querySelector('[data-basemap-provider="osm-fallback"]')).not.toBeNull();
+  });
+
+  it.each([
+    [401, /ArcGIS rechazó la clave/],
+    [403, /ArcGIS rechazó la clave/],
+  ])('exposes an explicit OSM fallback for ArcGIS HTTP %s without raw error data', async (status, message) => {
+    const handlers = {};
+    basemapState.applyStyle.mockImplementationOnce(() => ({
+      on: vi.fn((eventName, handler) => { handlers[eventName] = handler; }),
+      updateStyle: vi.fn().mockResolvedValue(undefined),
+    }));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    renderMap(navigation());
+
+    await waitFor(() => expect(handlers.BasemapStyleError).toBeTypeOf('function'));
+    act(() => handlers.BasemapStyleError({ status, message: 'Unauthorized API key' }));
+
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(document.querySelector('[data-basemap-provider="osm-fallback"]')).not.toBeNull();
+    expect(warning).toHaveBeenCalledWith('[mapa] Basemap fallback', {
+      basemap: 'osm-fallback',
+      motivo: status === 401 ? 'invalid-token' : 'privilege-or-referrer',
+    });
+    warning.mockRestore();
+  });
+
+  it('shows API KEY REQUIRED as a configuration error instead of a silent OSM state', async () => {
+    const handlers = {};
+    basemapState.applyStyle.mockImplementationOnce(() => ({
+      on: vi.fn((eventName, handler) => { handlers[eventName] = handler; }),
+      updateStyle: vi.fn().mockResolvedValue(undefined),
+    }));
+    renderMap(navigation());
+
+    await waitFor(() => expect(handlers.BasemapStyleError).toBeTypeOf('function'));
+    act(() => handlers.BasemapStyleError(new Error('API KEY REQUIRED')));
+
+    expect(await screen.findByText(/ArcGIS requiere una API key con privilegio Basemaps/i)).toBeTruthy();
+  });
+});
+
 describe('InteractiveMap camera lifecycle', () => {
   afterEach(() => {
     delete window.__capturarGeometria;
@@ -90,12 +213,14 @@ describe('InteractiveMap camera lifecycle', () => {
 
   beforeEach(() => {
   vi.clearAllMocks();
+    document.documentElement.classList.remove('dark');
   orientationState.heading = null;
     orientationState.ultimaActualizacion = null;
     orientationState.necesitaPermiso = false;
     orientationState.permiso = 'concedido';
     map.getZoom.mockReturnValue(16);
     map.getBearing.mockReturnValue(23);
+    mapaApiMock.token.mockResolvedValue({ token: 'basemap-test-key', motivo: null });
   });
 
   it('keeps the preview route framed without starting live follow', async () => {
