@@ -41,6 +41,13 @@
 - [x] **HARDEN-01**: Suite de pruebas de rumbo, suavizado circular, histéresis, geometría, ciclo de vida de Wake Lock y contrato backend `startTime=now`; build, lint y suite completa en verde
 - [ ] **HARDEN-02**: UAT físico registrado en Android Chrome y iPhone Safari (a pie y en auto: rotonda, calles paralelas, ruta que se cruza, pérdida de GPS, regreso desde segundo plano), sin guardar coordenadas de las pruebas
 
+### Basemap Vectorial ArcGIS (BASEMAP)
+
+- [ ] **BASEMAP-01**: Basemap oficial ArcGIS Navigation claro/oscuro, idioma español y atribución correcta mediante integración soportada con MapLibre
+- [ ] **BASEMAP-02**: Credencial pública `ARCGIS_BASEMAP_API_KEY` separada de credenciales privadas de routing, con referrers HTTPS documentados y sin secretos en logs
+- [ ] **BASEMAP-03**: Fallback OSM visual explícito con proveedor/motivo separado del fallback OSRM de rutas
+- [ ] **BASEMAP-04**: CSP y pruebas cubren style API, sprites, glyphs y tiles; no-regresión de navegación, lint, build y suite completa
+
 ## v2 Requirements
 
 Diferido a futuro. No mapeado al roadmap actual.
@@ -79,11 +86,15 @@ Diferido a futuro. No mapeado al roadmap actual.
 | TRAFFIC-02 | Phase 6 | Deferred; requiere ADR/aprobación |
 | HARDEN-01 | Phase 7 | Complete; local tests/build/lint verified |
 | HARDEN-02 | Phase 7 | Pending |
+| BASEMAP-01 | Phase 8 | Planned |
+| BASEMAP-02 | Phase 8 | Planned |
+| BASEMAP-03 | Phase 8 | Planned |
+| BASEMAP-04 | Phase 8 | Planned |
 
 **Coverage:**
 
-- v1 requirements: 15 total
-- Mapped to phases: 15
+- v1 requirements: 19 total
+- Mapped to phases: 19
 - Unmapped: 0 ✓
 
 ---
