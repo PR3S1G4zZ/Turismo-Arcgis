@@ -342,22 +342,13 @@ describe('InteractiveMap camera lifecycle', () => {
     log.mockRestore();
   });
 
-  it('logs the complete MapLibre GeoJSON when the dev-only flag is enabled', async () => {
+  it('does not log route geometry when a legacy dev-only flag is enabled', async () => {
     window.__capturarGeometria = true;
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     renderMap(navigation({ navegando: false, previsualizando: true, gpsConfiable: false }));
 
-    await waitFor(() => expect(log).toHaveBeenCalledWith(
-      '[captura-geometria] geojson-maplibre',
-      JSON.stringify({
-        type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: puntos.map(([lat, lng]) => [lng, lat]),
-        },
-        properties: {},
-      })
-    ));
+    await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(1));
+    expect(log).not.toHaveBeenCalledWith('[captura-geometria] geojson-maplibre', expect.any(String));
     log.mockRestore();
   });
 
