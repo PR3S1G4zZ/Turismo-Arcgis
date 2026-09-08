@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 current_phase: 8
 current_phase_name: Basemap vectorial ArcGIS Navigation
-status: planned
-stopped_at: Phase 8 plan verified; implementation and physical mobile UAT pending
-last_updated: "2026-09-08T00:00:00.000Z"
+status: awaiting-human
+stopped_at: Phase 8 implementation and independent review complete; production key/referrers and physical mobile UAT pending
+last_updated: "2026-09-08"
 last_activity: 2026-09-08
-last_activity_desc: Phase 8 basemap diagnosis and plan created; implementation, referrers and UAT remain
+last_activity_desc: Phase 8 implementation, independent Claude review, local verification and integration completed; referrers and UAT remain
 state_head: integration
 progress:
   total_phases: 8
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-09-01)
 ## Current Position
 
 Phase: 8 — Basemap vectorial ArcGIS Navigation
-Plan: 08-01 — Plan verified
-Status: Implementation, referrers and physical device validation pending
-Last activity: 2026-09-08 — Local diagnosis and plan verification completed
+Plan: 08-01 — Implementation and verification complete
+Status: Local implementation and verification complete; production referrers and physical device validation pending
+Last activity: 2026-09-08 — ArcGIS Navigation integration, Claude review and final local verification completed
 
 Progress: [█████████░] 88%
 

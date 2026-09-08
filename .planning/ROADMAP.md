@@ -178,7 +178,7 @@ fallback visual explícito.
 
 Plans:
 
-- [ ] 08-01-PLAN.md — Separación de credenciales, integración Navigation/CSP, fallback y regresión
+- [x] 08-01-PLAN.md — Separación de credenciales, integración Navigation/CSP, fallback y regresión
 
 ## Progress
 
@@ -194,3 +194,4 @@ Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. Mantener la pantalla activa | 1/1 | Complete    | 2026-09-01 |
 | 6. Tráfico ArcGIS | Implementación + investigación | TRAFFIC-01 integrado; TRAFFIC-02 diferido | 2026-09-01 (parcial) |
 | 7. Endurecimiento y UAT | 3/3 planes de suite/UAT-plantilla | Suite local verde; UAT físico PENDIENTE | 2026-09-01 (parcial) |
+| 8. Basemap vectorial ArcGIS Navigation | 1/1 | Implementación, revisión independiente y verificación local verdes; referrers/UAT HTTPS PENDIENTES | 2026-09-08 (parcial) |
