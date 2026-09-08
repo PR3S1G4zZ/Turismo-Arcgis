@@ -150,6 +150,33 @@ describe('navigation pose', () => {
     expect(matchedTarget.targetPosition).toEqual({ lat: 0, lng: 0.00001 });
   });
 
+  it('holds the last target when matching rejects an implausible progress jump', () => {
+    const estimator = createNavigationPoseEstimator({ profile: 'walk' });
+    const accepted = estimator.update(point(0, 0, 1000), {
+      match: {
+        position: { lat: 0, lng: 0 },
+        segmentIndex: 0,
+        deviationM: 0,
+        progressM: 0,
+        progressPlausible: true,
+      },
+    });
+    const rejected = estimator.update(point(0.0036, 0, 2000), {
+      match: {
+        position: { lat: 0.0036, lng: 0 },
+        segmentIndex: 10,
+        deviationM: 0,
+        progressM: 50,
+        progressPlausible: false,
+      },
+    });
+
+    expect(rejected.matchedPosition).toBeNull();
+    expect(rejected.positionSource).toBe('held');
+    expect(rejected.targetPosition).toEqual(accepted.targetPosition);
+    expect(rejected.confidence).toBe('low');
+  });
+
   it('marks degraded fixes low confidence and off route without replacing them by a target', () => {
     const estimator = createNavigationPoseEstimator({ profile: 'walk' });
     const pose = estimator.update(point(0, 0, 1000, { accuracy: 80 }), {

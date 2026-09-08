@@ -157,6 +157,9 @@ function getMatch(context) {
       ?? context.progressM
       ?? context.routeProgressM,
   );
+  const progressPlausible = typeof raw.progressPlausible === 'boolean'
+    ? raw.progressPlausible
+    : typeof context.progressPlausible === 'boolean' ? context.progressPlausible : true;
   const explicitOffRoute = typeof raw.isOffRoute === 'boolean'
     ? raw.isOffRoute
     : typeof raw.desviado === 'boolean'
@@ -168,6 +171,7 @@ function getMatch(context) {
     segmentIndex: segmentIndex == null ? null : Math.trunc(segmentIndex),
     deviationM,
     progressM,
+    progressPlausible,
     explicitOffRoute,
   };
 }
@@ -242,8 +246,11 @@ function routeCorridorM(profile, accuracy) {
   return Math.max(corridorMinM, Math.min(corridorMaxM, accuracyBased));
 }
 
-function confidenceFor({ profile, accuracy, isOffRoute }) {
-  if (!Number.isFinite(accuracy) || accuracy > profile.confidence.lowAccuracyMaxM || isOffRoute) {
+function confidenceFor({ profile, accuracy, isOffRoute, progressRejected = false }) {
+  if (!Number.isFinite(accuracy)
+    || accuracy > profile.confidence.lowAccuracyMaxM
+    || isOffRoute
+    || progressRejected) {
     return 'low';
   }
   if (accuracy <= profile.confidence.highAccuracyMaxM) return 'high';
@@ -323,17 +330,19 @@ function resolveBearing({ state, observation, context, profile, moving, displace
 
 function buildPose({ state, observation, context, profile, moving, displacementM, speedEstimateMps, match }) {
   const corridorM = routeCorridorM(profile, observation.accuracy);
+  const progressPlausible = match.progressPlausible !== false;
   const offRoute = match.explicitOffRoute != null
     ? match.explicitOffRoute
     : match.deviationM != null && match.deviationM > corridorM;
-  const matched = match.position && !offRoute
+  const matched = match.position && progressPlausible && !offRoute
     && observation.accuracy != null
     && observation.accuracy <= profile.confidence.lowAccuracyMaxM
     ? match.position
     : null;
   const positionIsUsable = observation.accuracy != null
     && observation.accuracy <= profile.confidence.lowAccuracyMaxM
-    && !offRoute;
+    && !offRoute
+    && progressPlausible;
   const heldAgeMs = state.lastUsableTimestamp == null
     ? Infinity
     : observation.timestamp - state.lastUsableTimestamp;
@@ -358,7 +367,7 @@ function buildPose({ state, observation, context, profile, moving, displacementM
     : normalizeAngle(context.cameraBearing);
   const targetCandidate = getTargetPosition(context);
   const targetPositionFromObservation = targetCandidate === undefined
-    ? clonePosition(matched ?? observation.position)
+    ? progressPlausible ? clonePosition(matched ?? observation.position) : null
     : targetCandidate;
   const targetPosition = canHoldPosition
     ? clonePosition(state.lastUsableTarget)
@@ -377,6 +386,7 @@ function buildPose({ state, observation, context, profile, moving, displacementM
       profile,
       accuracy: observation.accuracy,
       isOffRoute: offRoute,
+      progressRejected: !progressPlausible,
     }),
     isMoving: moving,
     isOffRoute: Boolean(offRoute),

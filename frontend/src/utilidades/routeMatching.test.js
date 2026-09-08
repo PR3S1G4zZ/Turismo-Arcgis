@@ -117,7 +117,10 @@ describe('routeMatching', () => {
     expect(resultado.candidateProgressM).toBeGreaterThan(35);
     expect(resultado.progressPlausible).toBe(false);
     expect(resultado.progressM).toBe(50);
-    expect(resultado.positionSource).toBe(POSITION_SOURCES.MATCHED);
+    expect(resultado.positionSource).toBe(POSITION_SOURCES.RAW);
+    expect(resultado.matchedPosition).toBeNull();
+    expect(resultado.projection).toBeNull();
+    expect(resultado.routeSegmentIndex).toBe(10);
   });
 
   it('no memoriza como progreso una lectura raw fuera del corredor', () => {

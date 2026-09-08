@@ -236,10 +236,11 @@ export function prepararRouteMatcher(ruta, optionsOrProfile = {}) {
  * Hace matching conservador de una observación sobre la ruta.
  *
  * La coordenada cruda siempre se devuelve. Solo se publica `matchedPosition`
- * cuando la proyección cae dentro del corredor del perfil; de lo contrario
- * `positionSource` permanece en `raw` y `isOffRoute` queda visible para el
- * consumidor. El progreso se retiene cuando el candidato implicaría un salto
- * incompatible con el índice/avance anterior.
+ * cuando la proyección cae dentro del corredor del perfil y el avance es
+ * físicamente plausible; de lo contrario `positionSource` permanece en `raw`
+ * y `isOffRoute` queda visible para el consumidor. El progreso se retiene
+ * cuando el candidato implicaría un salto incompatible con el índice/avance
+ * anterior.
  *
  * @returns {object} resultado de matching compatible con NavigationPose
  */
@@ -328,15 +329,19 @@ export function matchRoutePosition(rutaOrOptions, posicionOrOptions, opcionesEnt
     ? Math.max(progresoAnterior ?? 0, candidato.recorridoM)
     : progresoAnterior;
   const dentroDelCorredor = candidato.distanciaM <= corridorM;
-  const matchedPosition = dentroDelCorredor ? puntoComoObjeto(candidato.proyeccion) : null;
+  const progresoAceptado = dentroDelCorredor && avancePlausible;
+  const matchedPosition = progresoAceptado ? puntoComoObjeto(candidato.proyeccion) : null;
   const progressM = dentroDelCorredor ? progresoAceptadoM : progresoAnterior;
   const restanteM = progressM == null
     ? null
     : Math.max(0, ruta.largoTotalM - progressM);
-  const confidence = dentroDelCorredor
+  const confidence = progresoAceptado
     ? (accuracyM <= 20 ? 'high' : accuracyM <= 35 ? 'medium' : 'low')
     : 'low';
   const source = matchedPosition ? POSITION_SOURCES.MATCHED : POSITION_SOURCES.RAW;
+  const acceptedSegmentIndex = !avancePlausible && indiceAnterior != null
+    ? indiceAnterior
+    : candidato.indice;
 
   return {
     ...resultadoBase,
@@ -349,17 +354,17 @@ export function matchRoutePosition(rutaOrOptions, posicionOrOptions, opcionesEnt
     deviationM: candidato.distanciaM,
     desviacionM: candidato.distanciaM,
     corridorM,
-    routeSegmentIndex: candidato.indice,
-    segmentIndex: candidato.indice,
-    indice: candidato.indice,
+    routeSegmentIndex: acceptedSegmentIndex,
+    segmentIndex: acceptedSegmentIndex,
+    indice: acceptedSegmentIndex,
     candidateProgressM: candidato.recorridoM,
     progressM,
     recorridoM: progressM,
     progressPlausible: avancePlausible,
     remainingM: restanteM,
     restanteM,
-    projection: puntoComoObjeto(candidato.proyeccion),
-    proyeccion: candidato.proyeccion,
+    projection: progresoAceptado ? puntoComoObjeto(candidato.proyeccion) : null,
+    proyeccion: progresoAceptado ? candidato.proyeccion : null,
     timestamp,
   };
 }
