@@ -15,6 +15,7 @@ const map = {
   setStyle: vi.fn(),
   getZoom: vi.fn(() => 16),
   getBearing: vi.fn(() => 23),
+  getContainer: vi.fn(() => ({ clientHeight: 500 })),
   cooperativeGestures: { enable: vi.fn(), disable: vi.fn() },
 };
 let mapProps;
@@ -297,6 +298,7 @@ describe('InteractiveMap camera lifecycle', () => {
     };
     const frame = frameFromPose(pose, CAMERA_MODES.FOLLOWING);
     const target = buildCameraTarget(frame, { profile: 'walk' });
+    expect(target.anchorRatio).toBe(0.7);
     const view = renderMap(navigation({ pose, posicion: { ...position, lat: 9, lng: 9 } }));
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
@@ -306,11 +308,13 @@ describe('InteractiveMap camera lifecycle', () => {
       longitude: frame.displayPosition.lng,
       latitude: frame.displayPosition.lat,
     });
+    expect(map.getContainer).toHaveBeenCalled();
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
       center: target.center,
       bearing: target.bearing,
       pitch: target.pitch,
       zoom: target.zoom,
+      offset: [0, 100],
       duration: 0,
     }));
     expect(view.container.querySelector('[data-camera-mode="FOLLOWING"]')).not.toBeNull();

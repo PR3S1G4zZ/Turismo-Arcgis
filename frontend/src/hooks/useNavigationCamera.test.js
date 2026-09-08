@@ -5,6 +5,7 @@ import { getNavigationProfile } from '../utilidades/navigationProfiles';
 import {
   applyCameraDeadband,
   buildCameraTarget,
+  cameraOffsetForAnchor,
   limitAngularVelocity,
   useNavigationCamera,
 } from './useNavigationCamera';
@@ -111,5 +112,11 @@ describe('useNavigationCamera', () => {
 
     expect(target.center[0]).toBe(2);
     expect(target.center[1]).toBeGreaterThan(1);
+  });
+
+  it('translates the anchor ratio into a viewport offset below center', () => {
+    expect(cameraOffsetForAnchor(0.7, 500)).toEqual([0, 100]);
+    expect(cameraOffsetForAnchor(0.5, 500)).toEqual([0, 0]);
+    expect(cameraOffsetForAnchor(0.7, 0)).toEqual([0, 0]);
   });
 });

@@ -21,7 +21,7 @@ import { BasemapStyle } from '@esri/maplibre-arcgis';
 import { RiNavigationLine, RiFocus3Line, RiCompass3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 import { useNavigationFrame } from '../../hooks/useNavigationFrame';
-import { useNavigationCamera } from '../../hooks/useNavigationCamera';
+import { cameraOffsetForAnchor, useNavigationCamera } from '../../hooks/useNavigationCamera';
 import { BEARING_SOURCES, CAMERA_MODES } from '../../utilidades/navigationContracts';
 import { mapaApi } from '../../utilidades/api';
 import {
@@ -51,6 +51,7 @@ function compactCameraTarget(target) {
     bearing: Number(target.bearing),
     pitch: Number(target.pitch),
     zoom: Number(target.zoom),
+    anchorRatio: Number.isFinite(target.anchorRatio) ? target.anchorRatio : null,
     duration: Number.isFinite(target.duration) ? target.duration : 0,
   };
 }
@@ -73,6 +74,7 @@ function cameraTargetsEquivalent(first, second) {
     && circularCameraDifference(anterior.bearing, siguiente.bearing) <= CAMERA_TARGET_BEARING_EPSILON_DEG
     && Math.abs(anterior.pitch - siguiente.pitch) <= CAMERA_TARGET_SCALAR_EPSILON
     && Math.abs(anterior.zoom - siguiente.zoom) <= CAMERA_TARGET_SCALAR_EPSILON
+    && anterior.anchorRatio === siguiente.anchorRatio
     && anterior.duration === siguiente.duration;
 }
 
@@ -221,7 +223,12 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       if (!map || typeof map.easeTo !== 'function' || !siguiente) return;
       if (cameraTargetsEquivalent(ultimoTargetCamaraRef.current, siguiente)) return;
       ultimoTargetCamaraRef.current = siguiente;
-      map.easeTo(target);
+      const cameraOptions = {
+        ...target,
+        offset: cameraOffsetForAnchor(target.anchorRatio, map.getContainer?.()?.clientHeight),
+      };
+      delete cameraOptions.anchorRatio;
+      map.easeTo(cameraOptions);
     },
   });
   const [mapListo, setMapListo] = useState(false);

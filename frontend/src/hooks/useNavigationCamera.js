@@ -16,6 +16,14 @@ const EMPTY_LIMITS = Object.freeze({});
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
+/** Convierte el anclaje relativo del perfil en un offset vertical de MapLibre. */
+export function cameraOffsetForAnchor(anchorRatio, viewportHeight) {
+  if (!Number.isFinite(anchorRatio) || !Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+    return [0, 0];
+  }
+  return [0, Math.round((clamp(anchorRatio, 0, 1) - 0.5) * viewportHeight)];
+}
+
 function resolveProfile(value) {
   return value && typeof value === 'object' && value.camera && value.heading
     ? value
@@ -162,6 +170,7 @@ function applyCameraTarget(mapRef, target, duration = 0) {
     bearing: target.bearing,
     pitch: target.pitch,
     zoom: target.zoom,
+    anchorRatio: target.anchorRatio,
     duration,
   });
   return true;
