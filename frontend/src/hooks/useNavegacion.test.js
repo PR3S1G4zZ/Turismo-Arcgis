@@ -538,5 +538,53 @@ describe('useNavegacion', () => {
     });
   });
 
+  it('publishes one pose that keeps raw GPS and matched route coordinates explicit', async () => {
+    const { result, rerender } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar(site, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+
+    act(() => cambiarGps(
+      rerender,
+      { lat: 0.0005, lng: 8 / 111320, accuracy: 5, heading: null, speed: null },
+      2000,
+    ));
+
+    await waitFor(() => expect(result.current.pose?.timestamp).toBe(2000));
+    expect(result.current.pose).toMatchObject({
+      rawPosition: { lat: 0.0005, lng: 8 / 111320 },
+      matchedPosition: { lat: expect.any(Number), lng: expect.any(Number) },
+      targetPosition: { lat: expect.any(Number), lng: expect.any(Number) },
+      positionSource: 'matched',
+      isOffRoute: false,
+    });
+    expect(result.current.avanceRuta).toMatchObject({
+      rawPosition: { lat: 0.0005, lng: 8 / 111320 },
+      positionSource: 'matched',
+      isOffRoute: false,
+    });
+  });
+
+  it('does not replace the last accepted pose when GPS becomes degraded', async () => {
+    const { result, rerender } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar(site, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+    act(() => cambiarGps(rerender, { lat: 0.0005, lng: 0, accuracy: 5 }, 2000));
+    await waitFor(() => expect(result.current.pose?.timestamp).toBe(2000));
+    const acceptedPose = result.current.pose;
+
+    gps = {
+      ...gps,
+      position: { lat: 0.0007, lng: 0.001, accuracy: 80 },
+      gpsConfiable: false,
+      ultimaActualizacion: 3000,
+    };
+    rerender();
+
+    expect(result.current.pose).toEqual(acceptedPose);
+    expect(result.current.gpsConfiable).toBe(false);
+  });
+
 });
 

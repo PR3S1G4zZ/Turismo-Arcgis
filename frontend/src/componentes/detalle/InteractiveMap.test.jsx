@@ -1,7 +1,10 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
-import { tangenteRuta } from '../../utilidades/geoRuta';
+import { CAMERA_MODES } from '../../utilidades/navigationContracts';
+import { rotacionRelativaViewport, tangenteRuta } from '../../utilidades/geoRuta';
+import { frameFromPose } from '../../hooks/useNavigationFrame';
+import { buildCameraTarget } from '../../hooks/useNavigationCamera';
 
 const map = {
   stop: vi.fn(),
@@ -15,6 +18,7 @@ const map = {
   cooperativeGestures: { enable: vi.fn(), disable: vi.fn() },
 };
 let mapProps;
+let markerProps;
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('./InteractiveMap.css', () => ({}));
@@ -48,7 +52,10 @@ vi.mock('react-map-gl/maplibre', async () => {
       React.useEffect(() => onLoad?.({ target: map }), [onLoad]);
       return <div data-testid="map">{children}</div>;
     }),
-    Marker: ({ children }) => <>{children}</>,
+    Marker: (props) => {
+      markerProps.push(props);
+      return <>{props.children}</>;
+    },
     Popup: ({ children }) => <>{children}</>,
     Source: ({ children }) => <>{children}</>,
     Layer: () => null,
@@ -80,12 +87,51 @@ const puntos = [[6.17, -75.61], [6.18, -75.62]];
 const position = { lat: 6.171, lng: -75.611, heading: 90, accuracy: 5, speed: 1 };
 
 function navigation(overrides = {}) {
+  const positionValue = overrides.posicion || position;
+  const compassHeading = Number.isFinite(orientationState.heading) && !(positionValue.speed > 0)
+    ? orientationState.heading
+    : null;
+  const routeHeading = tangenteRuta({ puntos });
+  const arrowBearing = compassHeading ?? positionValue.heading ?? routeHeading;
+  const cameraBearing = positionValue.speed > 0 && Number.isFinite(positionValue.heading)
+    ? positionValue.heading
+    : routeHeading;
+  const selectedBearingSource = compassHeading != null
+    ? 'compass'
+    : positionValue.heading != null
+      ? 'gps'
+      : 'route-tangent';
+  const pose = overrides.pose || {
+    rawPosition: { lat: positionValue.lat, lng: positionValue.lng },
+    matchedPosition: { lat: positionValue.lat, lng: positionValue.lng },
+    targetPosition: { lat: positionValue.lat, lng: positionValue.lng },
+    arrowBearing,
+    cameraBearing,
+    speedEstimateMps: positionValue.speed,
+    confidence: 'high',
+    isMoving: positionValue.speed > 0,
+    isOffRoute: false,
+    bearingSource: selectedBearingSource,
+    positionSource: 'matched',
+    routeSegmentIndex: 0,
+    accuracyM: positionValue.accuracy,
+    timestamp: 1000,
+  };
   return {
-    posicion: position,
+    posicion: positionValue,
     posicionSimulada: false,
     gpsConfiable: true,
     tramos: { recorrido: [], restante: puntos },
     ruta: { puntos },
+    modo: 'walk',
+    pose,
+    orientacion: {
+      heading: orientationState.heading,
+      ultimaActualizacion: orientationState.ultimaActualizacion,
+      necesitaPermiso: orientationState.necesitaPermiso,
+      permiso: orientationState.permiso,
+      activar: orientationState.activar,
+    },
     navegando: true,
     llegado: false,
     previsualizando: false,
@@ -104,6 +150,7 @@ function renderMap(value, props = { showRoute: true }) {
 describe('InteractiveMap basemap ArcGIS Navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    markerProps = [];
     document.documentElement.classList.remove('dark');
     mapaApiMock.token.mockResolvedValue({ token: 'basemap-test-key', motivo: null });
   });
@@ -212,9 +259,10 @@ describe('InteractiveMap camera lifecycle', () => {
   });
 
   beforeEach(() => {
-  vi.clearAllMocks();
+    vi.clearAllMocks();
+    markerProps = [];
     document.documentElement.classList.remove('dark');
-  orientationState.heading = null;
+    orientationState.heading = null;
     orientationState.ultimaActualizacion = null;
     orientationState.necesitaPermiso = false;
     orientationState.permiso = 'concedido';
@@ -228,6 +276,54 @@ describe('InteractiveMap camera lifecycle', () => {
 
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(1));
     expect(map.easeTo).not.toHaveBeenCalled();
+  });
+
+  it('uses one shared pose-derived frame for the marker and camera target', async () => {
+    const pose = {
+      rawPosition: { lat: 9, lng: 9 },
+      matchedPosition: { lat: 6.171, lng: -75.611 },
+      targetPosition: { lat: 6.171, lng: -75.611 },
+      arrowBearing: 90,
+      cameraBearing: 90,
+      speedEstimateMps: 0,
+      confidence: 'high',
+      isMoving: false,
+      isOffRoute: false,
+      bearingSource: 'route-tangent',
+      positionSource: 'matched',
+      routeSegmentIndex: 0,
+      accuracyM: 5,
+      timestamp: 2000,
+    };
+    const frame = frameFromPose(pose, CAMERA_MODES.FOLLOWING);
+    const target = buildCameraTarget(frame, { profile: 'walk' });
+    const view = renderMap(navigation({ pose, posicion: { ...position, lat: 9, lng: 9 } }));
+
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    const userMarkers = markerProps.filter((props) => props.rotationAlignment === 'viewport');
+    const userMarker = userMarkers[userMarkers.length - 1];
+    expect(userMarker).toMatchObject({
+      longitude: frame.displayPosition.lng,
+      latitude: frame.displayPosition.lat,
+    });
+    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      center: target.center,
+      bearing: target.bearing,
+      pitch: target.pitch,
+      zoom: target.zoom,
+      duration: 0,
+    }));
+    expect(view.container.querySelector('[data-camera-mode="FOLLOWING"]')).not.toBeNull();
+  });
+
+  it('exposes GPS_DEGRADED to the map while retaining the shared frame', async () => {
+    const view = renderMap(navigation({ gpsConfiable: false }));
+
+    await waitFor(() => expect(view.container.querySelector('[data-camera-mode="GPS_DEGRADED"]')).not.toBeNull());
+    expect(markerProps.find((props) => props.rotationAlignment === 'viewport')).toMatchObject({
+      longitude: position.lng,
+      latitude: position.lat,
+    });
   });
 
   it('keeps geometry capture silent unless the manual flag is enabled', async () => {
@@ -262,7 +358,9 @@ describe('InteractiveMap camera lifecycle', () => {
   });
 
   it('owns a trusted live camera update with one short course-up ease', async () => {
-    renderMap(navigation());
+    const value = navigation();
+    const expected = buildCameraTarget(frameFromPose(value.pose, CAMERA_MODES.FOLLOWING), { profile: 'walk' });
+    renderMap(value);
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     expect(map.easeTo).toHaveBeenCalledTimes(1);
@@ -270,27 +368,51 @@ describe('InteractiveMap camera lifecycle', () => {
     // an explicit stop here would restart the animation on every GPS fix.
     expect(map.stop).not.toHaveBeenCalled();
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
-      center: [-75.611, 6.171], bearing: 90, pitch: 50, duration: 250,
+      center: expected.center,
+      bearing: expected.bearing,
+      pitch: expected.pitch,
+      zoom: expected.zoom,
+      duration: 0,
     }));
   });
 
   it('uses the route tangent while following live GPS with no finite heading', async () => {
-    renderMap(navigation({ posicion: { ...position, heading: null } }));
+    const value = navigation({ posicion: { ...position, heading: null } });
+    const expected = buildCameraTarget(frameFromPose(value.pose, CAMERA_MODES.FOLLOWING), { profile: 'walk' });
+    renderMap(value);
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     expect(map.stop).not.toHaveBeenCalled();
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
-      center: [-75.611, 6.171], bearing: tangenteRuta({ puntos }), pitch: 50, duration: 250,
+      center: expected.center,
+      bearing: expected.bearing,
+      pitch: expected.pitch,
+      zoom: expected.zoom,
+      duration: 0,
     }));
   });
 
-  it('uses the same selected compass heading for the arrow and the following camera', async () => {
+  it('uses compass for the stopped arrow while camera keeps the conservative course', async () => {
     orientationState.heading = 180;
     orientationState.ultimaActualizacion = Date.now();
-    renderMap(navigation({ posicion: { ...position, heading: 90, speed: 0 } }));
+    const value = navigation({ posicion: { ...position, heading: 90, speed: 0 } });
+    const expected = buildCameraTarget(frameFromPose(value.pose, CAMERA_MODES.FOLLOWING), { profile: 'walk' });
+    const view = renderMap(value);
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
-    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ bearing: 180 }));
+    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      center: expected.center,
+      bearing: expected.bearing,
+      pitch: expected.pitch,
+      zoom: expected.zoom,
+      duration: 0,
+    }));
+    const userMarkers = markerProps.filter((props) => props.rotationAlignment === 'viewport');
+    const userMarker = userMarkers[userMarkers.length - 1];
+    expect(userMarker.children.props.rotacion).toBe(
+      rotacionRelativaViewport(value.pose.arrowBearing, expected.bearing),
+    );
+    expect(view.container.querySelector('.user-arrow')).not.toBeNull();
   });
 
   it('does not recenter an informational map on every GPS update', async () => {
@@ -427,6 +549,7 @@ describe('InteractiveMap latency instrumentation', () => {
   beforeEach(() => {
     markSpy = vi.spyOn(performance, 'mark');
     measureSpy = vi.spyOn(performance, 'measure').mockReturnValue({ duration: 1 });
+    markerProps = [];
     orientationState.heading = null;
   });
 
@@ -448,7 +571,7 @@ describe('InteractiveMap latency instrumentation', () => {
 
   it('measures an accepted orientation change to arrow rendering', async () => {
     orientationState.heading = 45;
-    renderMap(navigation());
+    renderMap(navigation({ posicion: { ...position, speed: 0 } }));
 
     await waitFor(() => expect(measureSpy).toHaveBeenCalledWith(
       'diag:orientacion-flecha',

@@ -13,14 +13,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { rutasApi } from '../utilidades/api';
 import { useGeolocation } from './useGeolocation';
 import { useWakeLock } from './useWakeLock';
+import { useOrientacion } from './useOrientacion';
 import {
   prepararRuta,
-  localizarEnRuta,
   pasoActivo,
   partirRuta,
   distanciaM,
   rumbo,
 } from '../utilidades/geoRuta';
+import { createNavigationPoseEstimator } from '../utilidades/navigationPose';
+import { createRouteMatcher } from '../utilidades/routeMatching';
 // Instrumentación de diagnóstico dev-only (Fase 1, DIAG-01) -- ver
 // diagnosticoLatencias.js: no-op en producción, nunca registra coordenadas.
 import { marcar, medir, MARCAS, TRAMOS } from '../utilidades/diagnosticoLatencias';
@@ -42,8 +44,6 @@ const PRECISION_MAXIMA_DESVIO_M = 50;
 const TOLERANCIA_RUMBO_DESVIO_GRADOS = 120;
 const DESPLAZAMIENTO_MINIMO_COHERENTE_M = 8;
 const VENTANA_CONFIRMACION_DESVIO_MS = ESPERA_ENTRE_RECALCULOS_MS;
-const RETROCESO_JITTER_BASE_M = 15;
-const VELOCIDAD_MAXIMA_MATCHING_MS = 80;
 // Radio de llegada al destino.
 const RADIO_LLEGADA_M = 25;
 // Antelación con la que se anuncia la siguiente maniobra.
@@ -218,6 +218,51 @@ function puntoDeSitio(sitio) {
   return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
 }
 
+/**
+ * Conserva la forma histórica de `avanceRuta` para RouteModal y, al mismo
+ * tiempo, deja visibles los campos del resultado de matching. El progreso es
+ * siempre el progreso aceptado por el matcher; la coordenada cruda nunca se
+ * sustituye silenciosamente por una proyección.
+ */
+function avanceDesdeMatching(matching, ruta, anterior) {
+  const progresoM = Number.isFinite(matching?.progressM)
+    ? matching.progressM
+    : Number.isFinite(anterior?.recorridoM) ? anterior.recorridoM : 0;
+  const indice = Number.isFinite(matching?.segmentIndex)
+    ? matching.segmentIndex
+    : Number.isFinite(matching?.routeSegmentIndex)
+      ? matching.routeSegmentIndex
+      : anterior?.indice ?? 0;
+  const desviacionM = Number.isFinite(matching?.deviationM)
+    ? matching.deviationM
+    : Number.isFinite(matching?.desviacionM) ? matching.desviacionM : Infinity;
+  const restanteM = Number.isFinite(matching?.remainingM)
+    ? matching.remainingM
+    : Number.isFinite(matching?.restanteM)
+      ? matching.restanteM
+      : Math.max(0, ruta.largoTotalM - progresoM);
+  const projection = matching?.projection ?? matching?.proyeccion ?? null;
+  const proyeccion = Array.isArray(projection)
+    ? projection
+    : Number.isFinite(projection?.lat) && Number.isFinite(projection?.lng)
+      ? [projection.lat, projection.lng]
+      : null;
+
+  return {
+    ...matching,
+    indice,
+    recorridoM: progresoM,
+    restanteM,
+    desviacionM,
+    proyeccion,
+    projection,
+    positionSource: matching?.positionSource ?? matching?.source ?? 'raw',
+    rawPosition: matching?.rawPosition ?? null,
+    matchedPosition: matching?.matchedPosition ?? null,
+    isOffRoute: Boolean(matching?.isOffRoute),
+  };
+}
+
 export function useNavegacion() {
   const [estado, setEstado] = useState('inactivo'); // inactivo | calculando | previsualizando | navegando | llegado | error
   const wakeLock = useWakeLock(estado === 'calculando' || estado === 'navegando');
@@ -239,9 +284,11 @@ export function useNavegacion() {
     vigenciaRumboHasta,
     reintentar: reintentarGps,
   } = useGeolocation({ precisionAlta });
+  const orientacion = useOrientacion();
 
   const [ruta, setRuta] = useState(null);
   const [avance, setAvance] = useState(null);
+  const [pose, setPose] = useState(null);
   const [instruccion, setInstruccion] = useState(null);
   const [tramos, setTramos] = useState({ recorrido: [], restante: [] });
   const [destino, setDestino] = useState(null);
@@ -259,8 +306,14 @@ export function useNavegacion() {
 
   // Refs: el bucle del GPS no debe re-suscribirse en cada render.
   const rutaRef = useRef(null);
+  const routeMatcherRef = useRef(null);
+  const poseEstimatorRef = useRef(null);
   const indiceRef = useRef(0);
   const avanceLogicoRef = useRef(null);
+  const ultimaUbicacionMatchRef = useRef(null);
+  const poseTimestampRef = useRef(null);
+  const ultimaBrújulaProcesadaRef = useRef(null);
+  const cameraBearingRef = useRef(null);
   const pasoAnunciadoRef = useRef(-1);
   const avisoAnunciadoRef = useRef(-1);
   const vozActivaRef = useRef(true);
@@ -348,13 +401,20 @@ export function useNavegacion() {
       if (!preparada) throw new Error('La ruta recibida no tiene un trayecto válido.');
 
       rutaRef.current = preparada;
+      routeMatcherRef.current = createRouteMatcher(preparada, { profile: modoViaje });
+      poseEstimatorRef.current = createNavigationPoseEstimator({ profile: modoViaje });
       indiceRef.current = 0;
       avanceLogicoRef.current = null;
+      ultimaUbicacionMatchRef.current = null;
+      poseTimestampRef.current = null;
+      ultimaBrújulaProcesadaRef.current = null;
+      cameraBearingRef.current = null;
       pasoAnunciadoRef.current = -1;
       avisoAnunciadoRef.current = -1;
       ultimaObservacionGpsRef.current = null;
 
       setRuta(preparada);
+      setPose(null);
       setTramos({ recorrido: [], restante: preparada.puntos });
       setEstado(esVistaPrevia ? 'previsualizando' : 'navegando');
 
@@ -407,8 +467,14 @@ export function useNavegacion() {
     cooldownRecalculoRef.current = 0;
     fallosRecalculoRef.current = 0;
     rutaRef.current = null;
+    routeMatcherRef.current = null;
+    poseEstimatorRef.current = null;
     indiceRef.current = 0;
     avanceLogicoRef.current = null;
+    ultimaUbicacionMatchRef.current = null;
+    poseTimestampRef.current = null;
+    ultimaBrújulaProcesadaRef.current = null;
+    cameraBearingRef.current = null;
     ultimaObservacionGpsRef.current = null;
     desvioRef.current = crearEstadoDesvio();
     setEstadoDesvio(FASE_DESVIO_NORMAL);
@@ -416,6 +482,7 @@ export function useNavegacion() {
     setRecalculando(false);
     setRuta(null);
     setAvance(null);
+    setPose(null);
     setInstruccion(null);
     setTramos({ recorrido: [], restante: [] });
 
@@ -454,8 +521,14 @@ export function useNavegacion() {
     fallosRecalculoRef.current = 0;
     callar();
     rutaRef.current = null;
+    routeMatcherRef.current = null;
+    poseEstimatorRef.current = null;
     indiceRef.current = 0;
     avanceLogicoRef.current = null;
+    ultimaUbicacionMatchRef.current = null;
+    poseTimestampRef.current = null;
+    ultimaBrújulaProcesadaRef.current = null;
+    cameraBearingRef.current = null;
     pasoAnunciadoRef.current = -1;
     avisoAnunciadoRef.current = -1;
     desvioRef.current = crearEstadoDesvio();
@@ -466,6 +539,7 @@ export function useNavegacion() {
     setRecalculando(false);
     setRuta(null);
     setAvance(null);
+    setPose(null);
     setInstruccion(null);
     setTramos({ recorrido: [], restante: [] });
     setDestino(null);
@@ -487,60 +561,137 @@ export function useNavegacion() {
   }, [position, destino, modo, gpsConfiable, isSimulated, estado, calcular]);
 
   // ─── Bucle de seguimiento ─────────────────────────────────
-  // Se dispara con cada lectura del GPS mientras haya navegación activa.
+  // Se dispara con cada lectura aceptada del GPS mientras haya navegación
+  // activa. El matcher y el estimador son los únicos dueños del avance, la
+  // posición visual y el arbitraje de rumbo; la cámara y el marcador reciben
+  // la pose resultante a través del contexto.
   useEffect(() => {
-    if (estado !== 'navegando' || !gpsConfiable || isSimulated || !position || !rutaRef.current || !destino) return;
+    if (
+      estado !== 'navegando'
+      || !gpsConfiable
+      || isSimulated
+      || !position
+      || !rutaRef.current
+      || !destino
+      || !routeMatcherRef.current
+      || !poseEstimatorRef.current
+    ) return;
 
     const rutaActual = rutaRef.current;
-    const pos = [position.lat, position.lng];
-    const timestampGps = Number.isFinite(ultimaActualizacion) ? ultimaActualizacion : null;
     const anteriorGps = ultimaObservacionGpsRef.current;
+    // Los mocks y algunos navegadores antiguos no entregan el timestamp en
+    // el objeto expuesto por useGeolocation. Un reloj sintético local permite
+    // mantener la pose válida sin confundir después las lecturas ordenadas.
+    const timestampEsSintetico = !Number.isFinite(ultimaActualizacion)
+      && !Number.isFinite(position.timestamp);
+    const timestampGps = !timestampEsSintetico
+      ? (Number.isFinite(ultimaActualizacion) ? ultimaActualizacion : position.timestamp)
+      : Number.isFinite(anteriorGps?.timestamp) ? anteriorGps.timestamp + 1 : 1;
+    const coordenadaCambio = !anteriorGps
+      || position.lat !== anteriorGps.lat
+      || position.lng !== anteriorGps.lng;
     const lecturaObsoleta = Number.isFinite(timestampGps)
       && Number.isFinite(anteriorGps?.timestamp)
-      && timestampGps <= anteriorGps.timestamp;
+      && timestampGps <= anteriorGps.timestamp
+      && coordenadaCambio;
     if (lecturaObsoleta) return;
 
-    const ubicacionCalculada = localizarEnRuta(rutaActual, pos, indiceRef.current);
+    const nuevaLecturaGps = !Number.isFinite(anteriorGps?.timestamp)
+      || timestampGps > anteriorGps.timestamp;
+    const nuevaBrújula = !nuevaLecturaGps
+      && !coordenadaCambio
+      && Number.isFinite(orientacion.ultimaActualizacion)
+      && orientacion.ultimaActualizacion > (ultimaBrújulaProcesadaRef.current ?? -Infinity);
+
+    // Una orientación nueva puede actualizar la pose detenida sin volver a
+    // proyectar ni contar otra lectura GPS. Un fix con coordenadas distintas y
+    // timestamp viejo se descarta arriba, aunque llegue junto con la brújula.
+    if (!nuevaLecturaGps && !nuevaBrújula) return;
+
     const avancePrevio = avanceLogicoRef.current;
-    const retrocesoM = avancePrevio
-      ? avancePrevio.recorridoM - ubicacionCalculada.recorridoM
-      : 0;
-    const segundosDesdeFix = Number.isFinite(timestampGps)
-      && Number.isFinite(anteriorGps?.timestamp)
-      && timestampGps > anteriorGps.timestamp
-      ? (timestampGps - anteriorGps.timestamp) / 1000
-      : null;
-    const velocidadMaximaMatching = Number.isFinite(position.speed) && position.speed > 0
-      ? Math.min(120, Math.max(VELOCIDAD_MAXIMA_MATCHING_MS, position.speed * 3))
-      : VELOCIDAD_MAXIMA_MATCHING_MS;
-    const saltoAdelanteM = avancePrevio
-      ? ubicacionCalculada.recorridoM - avancePrevio.recorridoM
-      : 0;
-    const saltoAdelanteNoPlausible = segundosDesdeFix != null
-      && saltoAdelanteM > velocidadMaximaMatching * segundosDesdeFix
-        + Math.max(20, Number.isFinite(position.accuracy) ? position.accuracy * 2 : 20);
-    const toleranciaRetrocesoM = Math.max(
-      RETROCESO_JITTER_BASE_M,
-      Number.isFinite(position.accuracy) ? position.accuracy * 2 : RETROCESO_JITTER_BASE_M,
+    const matching = nuevaLecturaGps
+      ? routeMatcherRef.current(position, {
+        profile: modo,
+        timestamp: timestampEsSintetico ? undefined : timestampGps,
+        previousIndex: indiceRef.current,
+        previousProgressM: avancePrevio?.recorridoM,
+        previousTimestamp: anteriorGps?.sintetico ? undefined : anteriorGps?.timestamp,
+        speedMps: position.speed,
+        maxForwardProgressM: timestampEsSintetico || anteriorGps?.sintetico ? 120 : undefined,
+      })
+      : ultimaUbicacionMatchRef.current;
+    if (!matching) return;
+
+    // La pose mantiene su propio reloj monotónico para permitir cambios de
+    // brújula entre dos fixes sin relajar el filtro de GPS fuera de orden.
+    const timestampPose = nuevaLecturaGps
+      ? Math.max(
+        timestampGps,
+        poseTimestampRef.current == null ? timestampGps : poseTimestampRef.current + 1,
+      )
+      : Math.max(timestampGps, (poseTimestampRef.current ?? timestampGps) + 1);
+    const poseActual = poseEstimatorRef.current.update(
+      { ...position, timestamp: timestampPose },
+      {
+        profile: modo,
+        match: matching,
+        route: rutaActual,
+        gpsTrusted: gpsConfiable,
+        compass: {
+          heading: orientacion.heading,
+          timestamp: orientacion.ultimaActualizacion,
+          permission: orientacion.permiso,
+        },
+      },
     );
-    const retenerProgreso = (retrocesoM > 0 && retrocesoM <= toleranciaRetrocesoM)
-      || saltoAdelanteNoPlausible;
-    const ubicacion = retenerProgreso
-      ? {
-        ...ubicacionCalculada,
-        indice: avancePrevio?.indice ?? indiceRef.current,
-        recorridoM: avancePrevio.recorridoM,
-        restanteM: Math.max(0, rutaActual.largoTotalM - avancePrevio.recorridoM),
-      }
-      : ubicacionCalculada;
+    // La brújula orienta la flecha cuando la persona está detenida, pero la
+    // cámara conserva el rumbo de movimiento: último rumbo GPS/derivado y,
+    // si aún no existe, la tangente del tramo. Así un giro del teléfono no
+    // hace que el mapa salte de orientación por una lectura física.
+    const rumboMovimiento = poseActual?.movementBearing;
+    const rumboTangente = rumboLocalDeRuta(
+      rutaActual,
+      matching.segmentIndex ?? matching.routeSegmentIndex ?? matching.indice ?? 0,
+    );
+    const rumboCamara = Number.isFinite(rumboMovimiento)
+      ? rumboMovimiento
+      : Number.isFinite(cameraBearingRef.current)
+        ? cameraBearingRef.current
+        : rumboTangente;
+    if (Number.isFinite(rumboCamara)) cameraBearingRef.current = rumboCamara;
+    const posePublica = poseActual
+      ? { ...poseActual, cameraBearing: Number.isFinite(rumboCamara) ? rumboCamara : null }
+      : poseActual;
+    poseTimestampRef.current = poseActual.timestamp;
+    setPose(posePublica);
+    if (Number.isFinite(orientacion.ultimaActualizacion)) {
+      ultimaBrújulaProcesadaRef.current = orientacion.ultimaActualizacion;
+    }
+
+    // Una actualización de brújula solo cambia el rumbo de la pose; no puede
+    // alterar progreso, tramos, desvío ni el timestamp de la última lectura
+    // GPS aceptada.
+    if (!nuevaLecturaGps) return;
+
+    const ubicacion = avanceDesdeMatching(matching, rutaActual, avancePrevio);
+    ultimaUbicacionMatchRef.current = matching;
     indiceRef.current = ubicacion.indice;
     avanceLogicoRef.current = ubicacion;
     setAvance(ubicacion);
     setTramos(partirRuta(rutaActual, ubicacion.recorridoM));
+    ultimaObservacionGpsRef.current = {
+      lat: position.lat,
+      lng: position.lng,
+      timestamp: timestampGps,
+      sintetico: timestampEsSintetico,
+    };
 
     // Llegada: se mide también en línea recta al destino, no solo sobre la
     // ruta, porque el último tramo puede terminar en la acera de enfrente.
-    const distanciaAlDestinoM = distanciaM(pos, [destino.lat, destino.lng]);
+    const distanciaAlDestinoM = distanciaM(
+      [position.lat, position.lng],
+      [destino.lat, destino.lng],
+    );
 
     if (distanciaAlDestinoM <= RADIO_LLEGADA_M || ubicacion.restanteM <= RADIO_LLEGADA_M) {
       setEstado('llegado');
@@ -580,7 +731,7 @@ export function useNavegacion() {
       const evidencia = evaluarEvidenciaDesvio({
         ubicacion,
         position,
-        anterior: anteriorGps,
+        anterior: anteriorGps?.sintetico ? null : anteriorGps,
         timestamp: timestampGps,
         ruta: rutaActual,
       });
@@ -607,18 +758,20 @@ export function useNavegacion() {
       }
     }
 
-    const timestampOrdenado = !Number.isFinite(timestampGps)
-      || !Number.isFinite(anteriorGps?.timestamp)
-      || timestampGps > anteriorGps.timestamp;
-    if (timestampOrdenado) {
-      ultimaObservacionGpsRef.current = {
-        lat: position.lat,
-        lng: position.lng,
-        timestamp: timestampGps,
-      };
-    }
-
-  }, [position, estado, destino, modo, gpsConfiable, isSimulated, ultimaActualizacion, calcular, hablar]);
+  }, [
+    position,
+    estado,
+    destino,
+    modo,
+    gpsConfiable,
+    isSimulated,
+    ultimaActualizacion,
+    orientacion.heading,
+    orientacion.permiso,
+    orientacion.ultimaActualizacion,
+    calcular,
+    hablar,
+  ]);
 
   useEffect(() => {
     if (estado === 'navegando' && !gpsConfiable) callar();
@@ -651,6 +804,7 @@ export function useNavegacion() {
     vigenciaPosicionHasta,
     vigenciaRumboHasta,
     reintentarGps,
+    orientacion,
     // Origen a mano (cuando no hay GPS real) y el que realmente cuenta para
     // calcular la ruta inicial y las vistas previas de distancia/tiempo.
     origenManual,
@@ -678,13 +832,17 @@ export function useNavegacion() {
     ruta,
     destino,
     modo,
-    // El mapa puede derivar una tangente visual de este matching existente;
-    // la pausa de cámara nunca entra como dependencia del motor.
+    // Una única pose alimenta el interpolador visual del mapa. El alias en
+    // inglés ayuda a consumidores nuevos sin romper el vocabulario existente.
+    pose,
+    navigationPose: pose,
     avanceRuta: avance,
+    matching: avance,
     tramos,
     instruccion,
     desviacionM: avance?.desviacionM ?? 0,
-    fueraDeRuta: (avance?.desviacionM ?? 0) > UMBRAL_DESVIO_M,
+    fueraDeRuta: Boolean(avance?.isOffRoute)
+      || (avance?.desviacionM ?? 0) > UMBRAL_DESVIO_M,
     distanciaRestanteM: restanteM,
     distanciaTotalM: largoTotalM,
     tiempoRestanteMin,
