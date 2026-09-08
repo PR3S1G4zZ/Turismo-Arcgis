@@ -4,6 +4,7 @@ import {
   formatearDistancia,
   formatearDuracion,
   localizarEnRuta,
+  proyectarPuntoEnSegmento,
   prepararRuta,
   rumbo,
   normalizarRumbo,
@@ -23,6 +24,19 @@ describe('geoRuta', () => {
 
     expect(ubicacion.desviacionM).toBeLessThan(0.5);
     expect(ubicacion.restanteM).toBeCloseTo(distanciaM([0.0005, 0], [0.001, 0]), 0);
+  });
+
+  it('projects one point onto a segment using the shared raw geometry helper', () => {
+    const proyeccion = proyectarPuntoEnSegmento(
+      [8 * M, 50 * M],
+      [0, 0],
+      [0, 100 * M],
+    );
+
+    expect(proyeccion.proyeccion[0]).toBeCloseTo(0, 8);
+    expect(proyeccion.proyeccion[1]).toBeCloseTo(50 * M, 8);
+    expect(proyeccion.distanciaM).toBeGreaterThan(7);
+    expect(proyeccion.distanciaM).toBeLessThan(9);
   });
 
   it('keeps bearings in the north-clockwise convention', () => {

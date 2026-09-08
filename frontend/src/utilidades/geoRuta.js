@@ -132,6 +132,31 @@ function aPlano(punto, ref) {
 }
 
 /**
+ * Proyecta un punto [lat, lng] sobre un segmento de la geometría original.
+ * Devuelve la distancia perpendicular en metros, el parámetro del segmento y
+ * la coordenada interpolada, sin densificar ni alterar la polilínea.
+ */
+export function proyectarPuntoEnSegmento(posicion, a, b) {
+  const pa = aPlano(a, posicion);
+  const pb = aPlano(b, posicion);
+  const dx = pb.x - pa.x;
+  const dy = pb.y - pa.y;
+  const largo2 = dx * dx + dy * dy;
+  let t = largo2 === 0 ? 0 : -(pa.x * dx + pa.y * dy) / largo2;
+  t = Math.max(0, Math.min(1, t));
+  const px = pa.x + t * dx;
+  const py = pa.y + t * dy;
+  return {
+    distanciaM: Math.hypot(px, py),
+    t,
+    proyeccion: [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+    ],
+  };
+}
+
+/**
  * Precalcula lo que no cambia mientras el usuario camina: la distancia
  * acumulada hasta cada vértice y el punto de la ruta donde termina cada paso.
  * Se llama una vez por ruta, no en cada lectura del GPS.
@@ -193,26 +218,14 @@ export function localizarEnRuta(ruta, pos, desdeIndice = 0) {
     for (let i = desde; i < hasta; i++) {
       const a = puntos[i];
       const b = puntos[i + 1];
-      const pa = aPlano(a, pos);
-      const pb = aPlano(b, pos);
-      const dx = pb.x - pa.x;
-      const dy = pb.y - pa.y;
-      const largo2 = dx * dx + dy * dy;
+      const proyeccion = proyectarPuntoEnSegmento(pos, a, b);
 
-      // Parámetro de la proyección sobre el segmento, recortado a [0, 1].
-      let t = largo2 === 0 ? 0 : -(pa.x * dx + pa.y * dy) / largo2;
-      t = Math.max(0, Math.min(1, t));
-
-      const px = pa.x + t * dx;
-      const py = pa.y + t * dy;
-      const distancia = Math.hypot(px, py); // el origen del plano es `pos`
-
-      if (distancia < mejor.distancia) {
+      if (proyeccion.distanciaM < mejor.distancia) {
         mejor = {
-          distancia,
+          distancia: proyeccion.distanciaM,
           indice: i,
-          t,
-          proyeccion: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],
+          t: proyeccion.t,
+          proyeccion: proyeccion.proyeccion,
         };
       }
     }
