@@ -55,24 +55,10 @@ function DraggableMarker({ position, onMove }) {
 
 export function LocationPicker({ address, lat, lng, onChange, showAlert, showSearch = true }) {
   const [searching, setSearching] = useState(false);
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
-
-  useEffect(() => {
-    const observer = new MutationObserver(() =>
-      setIsDark(document.documentElement.classList.contains('dark'))
-    );
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-
   const hasCoords =
     lat != null && lng != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
   const position = hasCoords ? [Number(lat), Number(lng)] : null;
   const center = position || ITAGUI_CENTER;
-
-  const tileUrl = isDark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
   const handleSearch = async () => {
     if (!address || !address.trim()) {
@@ -115,9 +101,8 @@ export function LocationPicker({ address, lat, lng, onChange, showAlert, showSea
         <MapContainer center={center} zoom={hasCoords ? 16 : 14} scrollWheelZoom={true} style={{ height: '100%', width: '100%' }}>
           <Recenter center={position} />
           <TileLayer
-            key={isDark ? 'dark' : 'light'}
-            attribution='&copy; OpenStreetMap &copy; CARTO'
-            url={tileUrl}
+            attribution='&copy; OpenStreetMap contributors'
+            url='https://tile.openstreetmap.org/{z}/{x}/{y}.png'
           />
           <DraggableMarker position={position} onMove={onChange} />
         </MapContainer>

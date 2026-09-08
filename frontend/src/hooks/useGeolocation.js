@@ -13,7 +13,18 @@ const FALLBACK_LNG = -75.6091;
 // lecturas separadas por al menos unos metros (menos que eso es ruido del GPS).
 const DESPLAZAMIENTO_MIN_M = 5;
 const PRECISION_MAXIMA_M = 50;
-const EDAD_MAXIMA_EN_VIVO_MS = 5000;
+// Los teléfonos pueden tardar varios segundos en entregar una fijación de
+// alta precisión, especialmente al salir de un edificio. La vigencia lógica
+// permite conservar un fix reciente durante un intervalo lento, sin esperar
+// indefinidamente al timeout del navegador.
+const EDAD_MAXIMA_EN_VIVO_MS = 10000;
+const VIGENCIA_RUMBO_MS = 5000;
+const GRACIA_LECTURA_INVALIDA_MS = 8000;
+const TIMEOUT_GEOLOCALIZACION_MS = 15000;
+const MAXIMUM_AGE_GEOLOCALIZACION_MS = 2000;
+const ADELANTO_MAXIMO_RELOJ_MS = 30000;
+const VELOCIDAD_MAXIMA_PLAUSIBLE_MS = 80;
+const MARGEN_SALTO_GPS_M = 20;
 
 const geolocationSupported =
   typeof navigator !== 'undefined' && 'geolocation' in navigator;
@@ -71,7 +82,11 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
   const [loading, setLoading] = useState(geolocationSupported);
   const [isSimulated, setIsSimulated] = useState(!geolocationSupported);
   const [gpsConfiable, setGpsConfiable] = useState(false);
+  const [calidadGps, setCalidadGps] = useState(geolocationSupported ? 'sin_senal' : 'simulada');
+  const [motivoCalidad, setMotivoCalidad] = useState(geolocationSupported ? 'esperando-fix' : 'geolocalizacion-no-soportada');
   const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
+  const [vigenciaPosicionHasta, setVigenciaPosicionHasta] = useState(null);
+  const [vigenciaRumboHasta, setVigenciaRumboHasta] = useState(null);
   // Estado real del permiso ('prompt' | 'granted' | 'denied'), cuando el
   // navegador expone el Permissions API para geolocalización. 'desconocido'
   // en el resto de los casos (p. ej. Safari/iOS), donde solo queda inferir
@@ -84,6 +99,9 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
   // de marcha entre lecturas sin re-suscribir el watch en cada render.
   const ultimaCoordRef = useRef(null);
   const rumboRef = useRef(null);
+  const rumboTimestampRef = useRef(null);
+  const ultimaAceptacionEnMsRef = useRef(null);
+  const watchGeneracionRef = useRef(0);
   // Último error crudo del GPS, para poder retraducir el mensaje si el estado
   // de permiso se resuelve o cambia DESPUÉS de mostrado (la consulta al
   // Permissions API es async y puede llegar más tarde que el primer error).
@@ -105,24 +123,72 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
     if (!geolocationSupported) return;
     if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
 
+    const watchGeneracion = ++watchGeneracionRef.current;
+
     setLoading(true);
     setError(null);
     ultimoErrorRef.current = null;
 
+    const invalidarLectura = (motivo) => {
+      const hayFixReciente = ultimaAceptacionEnMsRef.current != null
+        && Date.now() - ultimaAceptacionEnMsRef.current <= GRACIA_LECTURA_INVALIDA_MS;
+      // Un outlier no sustituye ni invalida inmediatamente el último fix
+      // aceptado. Mientras siga dentro de la ventana de gracia, la cámara y la
+      // flecha conservan una referencia estable; el progreso no recibe ningún
+      // punto nuevo porque position tampoco cambia. Fuera de la ventana ya no
+      // hay un fix reciente que conservar: calidadGps debe reflejar pérdida de
+      // señal ('sin_senal'), no imprecisión ('degradada'), para no contradecir
+      // gpsConfiable=false en mensajeEstadoGps (estadoGps.js).
+      setGpsConfiable(hayFixReciente);
+      setCalidadGps(hayFixReciente ? 'degradada' : 'sin_senal');
+      setMotivoCalidad(motivo);
+      setLoading(false);
+    };
+
     const handleSuccess = (pos) => {
+      if (watchGeneracionRef.current !== watchGeneracion) return;
       const { latitude, longitude, accuracy, heading: rumboGps, speed } = pos.coords;
       const timestamp = pos.timestamp;
-      const esReciente = !precisionAltaRef.current || Date.now() - timestamp <= EDAD_MAXIMA_EN_VIVO_MS;
+      const ahora = Date.now();
+      const coordenadasValidas = Number.isFinite(latitude)
+        && latitude >= -90
+        && latitude <= 90
+        && Number.isFinite(longitude)
+        && longitude >= -180
+        && longitude <= 180;
+      const relojNoAdelantado = timestamp - ahora <= ADELANTO_MAXIMO_RELOJ_MS;
+      const esReciente = !precisionAltaRef.current
+        || ahora - timestamp <= EDAD_MAXIMA_EN_VIVO_MS;
+      const saltoPlausible = !ultimaCoordRef.current
+        || (distanciaM(
+          [ultimaCoordRef.current.lat, ultimaCoordRef.current.lng],
+          [latitude, longitude],
+        ) <= VELOCIDAD_MAXIMA_PLAUSIBLE_MS
+          * Math.max((timestamp - ultimaCoordRef.current.timestamp) / 1000, 0.1)
+          + Math.max(MARGEN_SALTO_GPS_M, ultimaCoordRef.current.accuracy + accuracy));
       const esConfiable = Number.isFinite(accuracy)
         && accuracy <= PRECISION_MAXIMA_M
         && Number.isFinite(timestamp)
         && (ultimoTimestampRef.current == null || timestamp > ultimoTimestampRef.current)
-        && esReciente;
+        && coordenadasValidas
+        && relojNoAdelantado
+        && esReciente
+        && saltoPlausible;
 
       if (!esConfiable) {
-        setGpsConfiable(false);
-        setLoading(false);
+        const motivo = !coordenadasValidas ? 'coordenadas-invalidas'
+          : !Number.isFinite(accuracy) || accuracy > PRECISION_MAXIMA_M ? 'precision-baja'
+            : !relojNoAdelantado ? 'reloj-futuro'
+              : !esReciente ? 'fix-stale'
+                : !saltoPlausible ? 'salto-no-plausible' : 'timestamp-obsoleto';
+        invalidarLectura(motivo);
         return;
+      }
+
+      if (rumboTimestampRef.current != null
+        && timestamp - rumboTimestampRef.current > EDAD_MAXIMA_EN_VIVO_MS) {
+        rumboRef.current = null;
+        rumboTimestampRef.current = null;
       }
 
       // Rumbo, en orden de preferencia: 1) el del GPS si hay movimiento real,
@@ -140,8 +206,9 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
       }
       if (rumboCrudo != null) {
         rumboRef.current = suavizarRumbo(rumboRef.current, rumboCrudo);
+        rumboTimestampRef.current = timestamp;
       }
-      ultimaCoordRef.current = { lat: latitude, lng: longitude };
+      ultimaCoordRef.current = { lat: latitude, lng: longitude, accuracy, timestamp };
       ultimoTimestampRef.current = timestamp;
 
       // Marca de arranque compartida por los tramos 1 (GPS->marcador) y 3
@@ -165,21 +232,47 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
       setError(null);
       setIsSimulated(false);
       setGpsConfiable(true);
+      setCalidadGps('confiable');
+      setMotivoCalidad('fix-aceptado');
       setUltimaActualizacion(timestamp);
+      ultimaAceptacionEnMsRef.current = ahora;
+      setVigenciaPosicionHasta(precisionAltaRef.current ? ahora + EDAD_MAXIMA_EN_VIVO_MS : null);
+      setVigenciaRumboHasta(rumboRef.current == null ? null : ahora + VIGENCIA_RUMBO_MS);
       setLoading(false);
     };
 
     const handleError = (err) => {
+      if (watchGeneracionRef.current !== watchGeneracion) return;
       console.warn(`Error de geolocalización (${err.code}): ${err.message}.`);
-      ultimoErrorRef.current = err;
-      setError(mensajeDeError(err, permisoRef.current));
-      setGpsConfiable(false);
+      const hayFixReciente = ultimaAceptacionEnMsRef.current != null
+        && Date.now() - ultimaAceptacionEnMsRef.current <= GRACIA_LECTURA_INVALIDA_MS;
+      const esErrorTransitorio = err.code === ERROR_TIMEOUT || err.code === ERROR_POSICION_NO_DISPONIBLE;
+      const conservarFix = hayFixReciente && esErrorTransitorio;
+      // Un timeout puntual del watch no es un permiso denegado. Ocultar el
+      // error transitorio evita que RouteModal muestre una tarjeta fatal cada
+      // pocos segundos mientras el navegador sigue intentando obtener señal.
+      ultimoErrorRef.current = conservarFix ? null : err;
+      setError(conservarFix ? null : mensajeDeError(err, permisoRef.current));
+      setGpsConfiable(conservarFix);
+      setCalidadGps('sin_senal');
+      setMotivoCalidad(err.code === ERROR_TIMEOUT ? 'timeout' : `error-${err.code}`);
       // Solo se usa un origen sintético cuando nunca hubo una fijación fiable.
       // Si el GPS falla después, conservar el último punto real evita que la
       // ruta parezca saltar a otro lugar mientras se recupera la señal.
       if (ultimoTimestampRef.current == null) {
         setPosition({ lat: FALLBACK_LAT, lng: FALLBACK_LNG });
         setIsSimulated(true);
+      } else if (!conservarFix) {
+        setPosition((previa) => {
+          if (!previa || previa.heading == null) return previa;
+          return { ...previa, heading: null };
+        });
+      }
+      if (!conservarFix) {
+        rumboRef.current = null;
+        rumboTimestampRef.current = null;
+        ultimaCoordRef.current = null;
+        setVigenciaRumboHasta(null);
       }
       setLoading(false);
     };
@@ -187,8 +280,8 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
     // Seguimiento en vivo de la ubicación real del dispositivo.
     watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
       enableHighAccuracy: precisionAltaRef.current,
-      timeout: 5000,
-      maximumAge: 1000,
+      timeout: TIMEOUT_GEOLOCALIZACION_MS,
+      maximumAge: MAXIMUM_AGE_GEOLOCALIZACION_MS,
     });
   }, []);
 
@@ -218,10 +311,33 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
 
   useEffect(() => {
     if (!precisionAlta || ultimaActualizacion == null) return undefined;
-    const restante = EDAD_MAXIMA_EN_VIVO_MS - (Date.now() - ultimaActualizacion);
-    const timer = setTimeout(() => setGpsConfiable(false), Math.max(0, restante));
-    return () => clearTimeout(timer);
-  }, [precisionAlta, ultimaActualizacion]);
+    const ahora = Date.now();
+    const posicionHasta = vigenciaPosicionHasta
+      ?? (ultimaAceptacionEnMsRef.current != null
+        ? ultimaAceptacionEnMsRef.current + EDAD_MAXIMA_EN_VIVO_MS
+        : ahora);
+    const rumboHasta = vigenciaRumboHasta;
+    const timers = [];
+    if (rumboHasta != null) {
+      timers.push(setTimeout(() => {
+        rumboRef.current = null;
+        rumboTimestampRef.current = null;
+        setPosition((previa) => {
+          if (!previa || previa.heading == null) return previa;
+          return { ...previa, heading: null };
+        });
+        setVigenciaRumboHasta(null);
+      }, Math.max(0, rumboHasta - ahora)));
+    }
+    timers.push(setTimeout(() => {
+      ultimaCoordRef.current = null;
+      setGpsConfiable(false);
+      setCalidadGps('sin_senal');
+      setMotivoCalidad('fix-stale');
+      setVigenciaPosicionHasta(null);
+    }, Math.max(0, posicionHasta - ahora)));
+    return () => timers.forEach(clearTimeout);
+  }, [precisionAlta, ultimaActualizacion, vigenciaPosicionHasta, vigenciaRumboHasta]);
 
   // Permissions API: cuando está disponible, dice el estado REAL del permiso
   // ('prompt' | 'granted' | 'denied'), no solo lo que se infiere de un error
@@ -272,7 +388,11 @@ export const useGeolocation = ({ precisionAlta = true } = {}) => {
     isSimulated,
     posicionSimulada: isSimulated,
     gpsConfiable,
+    calidadGps,
+    motivoCalidad,
     ultimaActualizacion,
+    vigenciaPosicionHasta,
+    vigenciaRumboHasta,
     permiso,
     reintentar: iniciarSeguimiento,
   };

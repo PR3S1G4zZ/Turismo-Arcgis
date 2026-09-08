@@ -31,14 +31,19 @@ export const UMBRAL_DESVIO_M = 45;
 export const LECTURAS_PARA_RECALCULAR = 3;
 // Tiempo mínimo entre recálculos. Cada uno es una petición facturable a ArcGIS.
 export const ESPERA_ENTRE_RECALCULOS_MS = 15000;
+// Los fallos también deben enfriar la siguiente petición. El tope evita que
+// una caída prolongada bloquee la navegación de forma indefinida.
+const MAX_ESPERA_RECALCULOS_MS = 60000;
 // Diez metros de banda evita alternar por ruido alrededor de la entrada. No
-// reutiliza el margen geomÃ©trico interno de localizarEnRuta (30 m).
+// reutiliza el margen geométrico interno de localizarEnRuta (30 m).
 const UMBRAL_SALIDA_DESVIO_M = 35;
 const MARGEN_PRECISION_DESVIO_M = 10;
 const PRECISION_MAXIMA_DESVIO_M = 50;
 const TOLERANCIA_RUMBO_DESVIO_GRADOS = 120;
 const DESPLAZAMIENTO_MINIMO_COHERENTE_M = 8;
 const VENTANA_CONFIRMACION_DESVIO_MS = ESPERA_ENTRE_RECALCULOS_MS;
+const RETROCESO_JITTER_BASE_M = 15;
+const VELOCIDAD_MAXIMA_MATCHING_MS = 80;
 // Radio de llegada al destino.
 const RADIO_LLEGADA_M = 25;
 // Antelación con la que se anuncia la siguiente maniobra.
@@ -71,9 +76,9 @@ function rumboLocalDeRuta(ruta, indice) {
 }
 
 /**
- * EvalÃºa una lectura ya aceptada por useGeolocation sin volver a proyectarla.
- * `speed` y `heading` son corroboraciÃ³n opcional: null significa evidencia
- * desconocida, nunca una contradicciÃ³n automÃ¡tica.
+ * Evalúa una lectura ya aceptada por useGeolocation sin volver a proyectarla.
+ * `speed` y `heading` son corroboración opcional: null significa evidencia
+ * desconocida, nunca una contradicción automática.
  */
 function evaluarEvidenciaDesvio({ ubicacion, position, anterior, timestamp, ruta }) {
   const desviacionM = ubicacion?.desviacionM;
@@ -110,7 +115,7 @@ function evaluarEvidenciaDesvio({ ubicacion, position, anterior, timestamp, ruta
         [position.lat, position.lng],
       );
       const transcurridoMs = timestamp - anterior.timestamp;
-      // Tolerancia amplia para un GPS mÃ³vil, pero un salto de decenas de metros
+      // Tolerancia amplia para un GPS móvil, pero un salto de decenas de metros
       // con velocidad cero no puede convertirse en una salida persistente.
       const desplazamientoMaximoM = Math.max(
         20,
@@ -156,8 +161,8 @@ function evaluarEvidenciaDesvio({ ubicacion, position, anterior, timestamp, ruta
 }
 
 /**
- * MÃ¡quina pequeÃ±a y pura para persistencia/histÃ©resis. No hace llamadas ni
- * conoce React; la solicitud se produce Ãºnicamente al devolver confirmado.
+ * Máquina pequeña y pura para persistencia/histéresis. No hace llamadas ni
+ * conoce React; la solicitud se produce únicamente al devolver confirmado.
  */
 function avanzarEstadoDesvio(actual, evidencia, timestamp, ahora = Date.now()) {
   const estado = actual || crearEstadoDesvio();
@@ -228,6 +233,10 @@ export function useNavegacion() {
     loading: gpsCargando,
     error: gpsError,
     permiso: gpsPermiso,
+    calidadGps,
+    motivoCalidad,
+    vigenciaPosicionHasta,
+    vigenciaRumboHasta,
     reintentar: reintentarGps,
   } = useGeolocation({ precisionAlta });
 
@@ -251,6 +260,7 @@ export function useNavegacion() {
   // Refs: el bucle del GPS no debe re-suscribirse en cada render.
   const rutaRef = useRef(null);
   const indiceRef = useRef(0);
+  const avanceLogicoRef = useRef(null);
   const pasoAnunciadoRef = useRef(-1);
   const avisoAnunciadoRef = useRef(-1);
   const vozActivaRef = useRef(true);
@@ -260,7 +270,9 @@ export function useNavegacion() {
   const sesionRef = useRef(0);
   const generacionSolicitudRef = useRef(0);
   const solicitudActivaRef = useRef(null);
+  const solicitudAbortControllerRef = useRef(null);
   const cooldownRecalculoRef = useRef(0);
+  const fallosRecalculoRef = useRef(0);
 
   useEffect(() => { vozActivaRef.current = vozActiva; }, [vozActiva]);
 
@@ -290,12 +302,18 @@ export function useNavegacion() {
 
   // ─── Cálculo de la ruta ───────────────────────────────────
   const calcular = useCallback(async (origen, destinoPunto, modoViaje, esRecalculo = false, esVistaPrevia = false) => {
+    if (esRecalculo && (calculandoRef.current || Date.now() < cooldownRecalculoRef.current)) {
+      return null;
+    }
     const sesion = sesionRef.current;
     const generacion = ++generacionSolicitudRef.current;
+    solicitudAbortControllerRef.current?.abort();
+    const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+    solicitudAbortControllerRef.current = abortController;
     solicitudActivaRef.current = { sesion, generacion };
     calculandoRef.current = true;
     // Tramo 5 (solicitud->respuesta ArcGIS): arranca aquí, tras el guard de
-    // identidad, para que una solicitud sustituida no contamine la mediciÃ³n.
+    // identidad, para que una solicitud sustituida no contamine la medición.
     marcar(MARCAS.SOLICITUD_ENVIADA);
 
     if (esRecalculo) {
@@ -313,7 +331,13 @@ export function useNavegacion() {
     );
 
     try {
-      const cruda = await rutasApi.resolver(origen, destinoPunto, modoViaje, destinoPunto.nombre);
+      const cruda = await rutasApi.resolver(
+        origen,
+        destinoPunto,
+        modoViaje,
+        destinoPunto.nombre,
+        { signal: abortController?.signal },
+      );
       if (!sigueVigente()) return null;
       // Cubre el viaje completo frontend->backend->ArcGIS->frontend, no solo
       // el tiempo interno de ArcGIS -- también sirve de arranque del tramo 6
@@ -325,6 +349,7 @@ export function useNavegacion() {
 
       rutaRef.current = preparada;
       indiceRef.current = 0;
+      avanceLogicoRef.current = null;
       pasoAnunciadoRef.current = -1;
       avisoAnunciadoRef.current = -1;
       ultimaObservacionGpsRef.current = null;
@@ -336,6 +361,7 @@ export function useNavegacion() {
       if (esRecalculo) {
         desvioRef.current = { ...crearEstadoDesvio(), fase: FASE_DESVIO_APLICADO };
         setEstadoDesvio(FASE_DESVIO_APLICADO);
+        fallosRecalculoRef.current = 0;
         cooldownRecalculoRef.current = Date.now() + ESPERA_ENTRE_RECALCULOS_MS;
         hablar('Recalculando la ruta.');
       } else {
@@ -350,11 +376,18 @@ export function useNavegacion() {
       if (esRecalculo) {
         desvioRef.current = { ...desvioRef.current, fase: FASE_DESVIO_CONFIRMADO };
         setEstadoDesvio(FASE_DESVIO_CONFIRMADO);
+        fallosRecalculoRef.current = Math.min(fallosRecalculoRef.current + 1, 3);
+        const espera = Math.min(
+          MAX_ESPERA_RECALCULOS_MS,
+          ESPERA_ENTRE_RECALCULOS_MS * (2 ** (fallosRecalculoRef.current - 1)),
+        );
+        cooldownRecalculoRef.current = Date.now() + espera;
       }
       return null;
     } finally {
       if (sigueVigente()) {
         solicitudActivaRef.current = null;
+        solicitudAbortControllerRef.current = null;
         calculandoRef.current = false;
         setRecalculando(false);
       }
@@ -363,15 +396,19 @@ export function useNavegacion() {
 
   // ─── Acciones públicas ────────────────────────────────────
   const iniciar = useCallback((sitio, modoViaje = 'walk') => {
-    // Cada inicio representa una sesiÃ³n nueva: cualquier respuesta pendiente
-    // de la navegaciÃ³n anterior queda inservible aunque no sea abortable.
+    // Cada inicio representa una sesión nueva: cualquier respuesta pendiente
+    // de la navegación anterior queda inservible aunque no sea abortable.
     sesionRef.current += 1;
     generacionSolicitudRef.current += 1;
+    solicitudAbortControllerRef.current?.abort();
+    solicitudAbortControllerRef.current = null;
     solicitudActivaRef.current = null;
     calculandoRef.current = false;
     cooldownRecalculoRef.current = 0;
+    fallosRecalculoRef.current = 0;
     rutaRef.current = null;
     indiceRef.current = 0;
+    avanceLogicoRef.current = null;
     ultimaObservacionGpsRef.current = null;
     desvioRef.current = crearEstadoDesvio();
     setEstadoDesvio(FASE_DESVIO_NORMAL);
@@ -409,12 +446,16 @@ export function useNavegacion() {
   const detener = useCallback(() => {
     sesionRef.current += 1;
     generacionSolicitudRef.current += 1;
+    solicitudAbortControllerRef.current?.abort();
+    solicitudAbortControllerRef.current = null;
     solicitudActivaRef.current = null;
     calculandoRef.current = false;
     cooldownRecalculoRef.current = 0;
+    fallosRecalculoRef.current = 0;
     callar();
     rutaRef.current = null;
     indiceRef.current = 0;
+    avanceLogicoRef.current = null;
     pasoAnunciadoRef.current = -1;
     avisoAnunciadoRef.current = -1;
     desvioRef.current = crearEstadoDesvio();
@@ -433,7 +474,15 @@ export function useNavegacion() {
   }, [callar]);
 
   const recalcularAhora = useCallback(() => {
-    if (!position || !destino || !gpsConfiable || isSimulated || estado !== 'navegando') return;
+    if (
+      !position
+      || !destino
+      || !gpsConfiable
+      || isSimulated
+      || estado !== 'navegando'
+      || calculandoRef.current
+      || Date.now() < cooldownRecalculoRef.current
+    ) return;
     calcular(position, destino, modo, true);
   }, [position, destino, modo, gpsConfiable, isSimulated, estado, calcular]);
 
@@ -446,9 +495,46 @@ export function useNavegacion() {
     const pos = [position.lat, position.lng];
     const timestampGps = Number.isFinite(ultimaActualizacion) ? ultimaActualizacion : null;
     const anteriorGps = ultimaObservacionGpsRef.current;
+    const lecturaObsoleta = Number.isFinite(timestampGps)
+      && Number.isFinite(anteriorGps?.timestamp)
+      && timestampGps <= anteriorGps.timestamp;
+    if (lecturaObsoleta) return;
 
-    const ubicacion = localizarEnRuta(rutaActual, pos, indiceRef.current);
+    const ubicacionCalculada = localizarEnRuta(rutaActual, pos, indiceRef.current);
+    const avancePrevio = avanceLogicoRef.current;
+    const retrocesoM = avancePrevio
+      ? avancePrevio.recorridoM - ubicacionCalculada.recorridoM
+      : 0;
+    const segundosDesdeFix = Number.isFinite(timestampGps)
+      && Number.isFinite(anteriorGps?.timestamp)
+      && timestampGps > anteriorGps.timestamp
+      ? (timestampGps - anteriorGps.timestamp) / 1000
+      : null;
+    const velocidadMaximaMatching = Number.isFinite(position.speed) && position.speed > 0
+      ? Math.min(120, Math.max(VELOCIDAD_MAXIMA_MATCHING_MS, position.speed * 3))
+      : VELOCIDAD_MAXIMA_MATCHING_MS;
+    const saltoAdelanteM = avancePrevio
+      ? ubicacionCalculada.recorridoM - avancePrevio.recorridoM
+      : 0;
+    const saltoAdelanteNoPlausible = segundosDesdeFix != null
+      && saltoAdelanteM > velocidadMaximaMatching * segundosDesdeFix
+        + Math.max(20, Number.isFinite(position.accuracy) ? position.accuracy * 2 : 20);
+    const toleranciaRetrocesoM = Math.max(
+      RETROCESO_JITTER_BASE_M,
+      Number.isFinite(position.accuracy) ? position.accuracy * 2 : RETROCESO_JITTER_BASE_M,
+    );
+    const retenerProgreso = (retrocesoM > 0 && retrocesoM <= toleranciaRetrocesoM)
+      || saltoAdelanteNoPlausible;
+    const ubicacion = retenerProgreso
+      ? {
+        ...ubicacionCalculada,
+        indice: avancePrevio?.indice ?? indiceRef.current,
+        recorridoM: avancePrevio.recorridoM,
+        restanteM: Math.max(0, rutaActual.largoTotalM - avancePrevio.recorridoM),
+      }
+      : ubicacionCalculada;
     indiceRef.current = ubicacion.indice;
+    avanceLogicoRef.current = ubicacion;
     setAvance(ubicacion);
     setTramos(partirRuta(rutaActual, ubicacion.recorridoM));
 
@@ -560,6 +646,10 @@ export function useNavegacion() {
     gpsCargando,
     gpsError,
     gpsPermiso,
+    calidadGps,
+    motivoCalidad,
+    vigenciaPosicionHasta,
+    vigenciaRumboHasta,
     reintentarGps,
     // Origen a mano (cuando no hay GPS real) y el que realmente cuenta para
     // calcular la ruta inicial y las vistas previas de distancia/tiempo.

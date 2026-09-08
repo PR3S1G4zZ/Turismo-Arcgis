@@ -3,7 +3,10 @@
 // (ver frontend/.env.example); en desarrollo cae por defecto a localhost:3001.
 // OJO: usa "??" y no "||" — VITE_API_URL='' (mismo origen, monorepo detrás de
 // un solo servicio) es un valor válido y NO debe caer al default de abajo.
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+// En un build de producción, si no se inyecta la variable, las llamadas deben
+// quedar relativas al mismo origen (Railway sirve API y SPA en el contenedor).
+const API_BASE = import.meta.env.VITE_API_URL
+  ?? (import.meta.env.PROD ? '' : 'http://localhost:3001');
 
 // ─── Manejo del token de sesión (JWT) ───────────────────────
 const TOKEN_KEY = 'turismo_token';
@@ -19,9 +22,13 @@ export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
  * Petición genérica al backend. Inyecta el token si existe y normaliza errores
  * a un Error con mensaje legible. `body` (si es objeto) se envía como JSON.
  */
-async function request(path, { method = 'GET', body, auth = false, isForm = false } = {}) {
+async function request(path, { method = 'GET', body, auth = false, isForm = false, signal } = {}) {
   const headers = {};
   if (!isForm) headers['Content-Type'] = 'application/json';
+  // Ngrok muestra una pantalla intermedia en algunos navegadores gratuitos.
+  // Este encabezado solo se añade al bundle de desarrollo y permite que las
+  // llamadas relativas /api lleguen al proxy Vite durante la prueba móvil.
+  if (import.meta.env.DEV) headers['ngrok-skip-browser-warning'] = 'true';
   if (auth) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -33,6 +40,7 @@ async function request(path, { method = 'GET', body, auth = false, isForm = fals
       method,
       headers,
       body: isForm ? body : (body != null ? JSON.stringify(body) : undefined),
+      ...(signal ? { signal } : {}),
     });
   } catch {
     throw new Error('No se pudo contactar el servidor. ¿Está el backend en ejecución?');
@@ -121,8 +129,12 @@ export const rutasApi = {
    * duracionMin:number, traficoSolicitado:boolean, traficoAplicado:boolean,
    * degradacionTrafico:string|null}>}
    */
-  resolver: (origen, destino, modo = 'walk', nombreDestino = '') =>
-    request('/api/rutas/resolver', { method: 'POST', body: { origen, destino, modo, nombreDestino } }),
+  resolver: (origen, destino, modo = 'walk', nombreDestino = '', options = {}) =>
+    request('/api/rutas/resolver', {
+      method: 'POST',
+      body: { origen, destino, modo, nombreDestino },
+      signal: options?.signal,
+    }),
 
   // Diagnóstico: qué proveedor de ruteo está activo (arcgis u osrm).
   estado: () => request('/api/rutas/estado'),
@@ -132,7 +144,8 @@ export const rutasApi = {
 export const mapaApi = {
   /**
    * Token para el basemap vectorial de ArcGIS. El backend responde 204 (→ null)
-   * si no hay credenciales ArcGIS; en ese caso el mapa usa el respaldo de CARTO.
+   * si no hay credenciales ArcGIS; en ese caso el mapa usa el respaldo raster
+   * sin credenciales.
    * @returns {Promise<string|null>}
    */
   token: async () => {

@@ -43,6 +43,7 @@ const routeAlternative = {
   distanciaM: 222,
   duracionMin: 3,
 };
+const METRO_EN_GRADOS = 1 / 111320;
 
 const posicionFuera = (extras = {}) => ({
   lat: 0.0005,
@@ -78,6 +79,7 @@ describe('useNavegacion', () => {
   });
 
   afterEach(() => cleanup());
+  afterEach(() => vi.restoreAllMocks());
 
   it('sends origin then destination when it requests route A to B', async () => {
     const { result } = renderHook(() => useNavegacion());
@@ -90,6 +92,7 @@ describe('useNavegacion', () => {
       expect.objectContaining({ lat: 0.001, lng: 0, nombre: 'Destino B' }),
       'walk',
       'Destino B',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     await waitFor(() => expect(result.current.avanceRuta).toMatchObject({ indice: 0 }));
     expect(result.current.wakeLock).toEqual(expect.objectContaining({ activo: true }));
@@ -132,6 +135,58 @@ describe('useNavegacion', () => {
 
     expect(resolver).not.toHaveBeenCalled();
     expect(result.current.estadoDesvio).toBe('normal');
+  });
+
+  it('does not move logical progress backwards for normal GPS jitter', async () => {
+    const { result, rerender } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar(site, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+
+    act(() => cambiarGps(rerender, { lat: 0.0005, lng: 0, accuracy: 10 }, 2000));
+    await waitFor(() => expect(result.current.avanceRuta?.recorridoM).toBeGreaterThan(40));
+    const avanceAntes = result.current.avanceRuta.recorridoM;
+
+    act(() => cambiarGps(rerender, { lat: 0.0004, lng: 0, accuracy: 10 }, 3000));
+
+    expect(result.current.avanceRuta.recorridoM).toBeGreaterThanOrEqual(avanceAntes);
+  });
+
+  it('ignores an out-of-order GPS fix before projecting progress', async () => {
+    const { result, rerender } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar(site, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+
+    act(() => cambiarGps(rerender, { lat: 0.0007, lng: 0, accuracy: 10 }, 4000));
+    await waitFor(() => expect(result.current.avanceRuta?.recorridoM).toBeGreaterThan(60));
+    const avanceAntes = result.current.avanceRuta.recorridoM;
+
+    act(() => cambiarGps(rerender, { lat: 0.0002, lng: 0, accuracy: 10 }, 3000));
+
+    expect(result.current.avanceRuta.recorridoM).toBe(avanceAntes);
+  });
+
+  it('does not jump to a future nearby segment when the GPS fix cannot cover the gap', async () => {
+    const puntos = [];
+    for (let i = 0; i <= 40; i++) puntos.push([i * 5 * METRO_EN_GRADOS, 0]);
+    puntos.push([0, 33 * METRO_EN_GRADOS]);
+    resolver.mockReset();
+    resolver.mockResolvedValue({ puntos, pasos: [], distanciaM: 250, duracionMin: 5 });
+    gps = { ...gps, ultimaActualizacion: 0 };
+    const { result, rerender } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar({ name: 'Destino futuro', lat: 0.004, lng: 0 }, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+    const avanceInicial = result.current.avanceRuta?.recorridoM ?? 0;
+
+    act(() => cambiarGps(
+      rerender,
+      { lat: 0, lng: 35 * METRO_EN_GRADOS, accuracy: 10 },
+      1000,
+    ));
+
+    expect(result.current.avanceRuta.recorridoM).toBeLessThan(avanceInicial + 110);
   });
 
   it('confirms a precise deviation when optional speed and heading are absent', async () => {
@@ -246,7 +301,7 @@ describe('useNavegacion', () => {
     await act(async () => resolveRecalculo(route));
   });
 
-  it('applies only the latest recalculation response', async () => {
+  it('keeps one active recalculation and ignores a duplicate manual trigger', async () => {
     const pending = [];
     resolver
       .mockResolvedValueOnce(route)
@@ -262,25 +317,94 @@ describe('useNavegacion', () => {
     await waitFor(() => expect(resolver).toHaveBeenCalledTimes(2));
 
     act(() => result.current.recalcularAhora());
-    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(2));
 
-    await act(async () => pending[1](routeAlternative));
+    await act(async () => pending[0](routeAlternative));
     await waitFor(() => expect(result.current.ruta?.puntos).toEqual(routeAlternative.puntos));
     expect(result.current.recalculando).toBe(false);
-
-    await act(async () => pending[0](route));
-    expect(result.current.ruta?.puntos).toEqual(routeAlternative.puntos);
     expect(result.current.estado).toBe('navegando');
+  });
+
+  it('applies a cooldown after a failed automatic recalculation', async () => {
+    const pending = [];
+    resolver.mockResolvedValueOnce(route);
+    resolver.mockImplementation(() => new Promise((resolve, reject) => pending.push({ resolve, reject })));
+    const { result, rerender } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar(site, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+    resolver.mockClear();
+
+    const fuera = posicionFuera();
+    act(() => cambiarGps(rerender, fuera, 2000));
+    act(() => cambiarGps(rerender, { ...fuera }, 3000));
+    act(() => cambiarGps(rerender, { ...fuera }, 4000));
+    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+
+    await act(async () => pending[0].reject(new Error('ArcGIS no disponible')));
+    expect(result.current.recalculando).toBe(false);
+
+    act(() => cambiarGps(rerender, { ...fuera, lat: fuera.lat + 0.00001 }, 5000));
+    act(() => cambiarGps(rerender, { ...fuera, lat: fuera.lat + 0.00001 }, 6000));
+    act(() => cambiarGps(rerender, { ...fuera, lat: fuera.lat + 0.00001 }, 7000));
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+  });
+
+  it('increases failed recalculation cooldown with a bounded backoff', async () => {
+    const pending = [];
+    const ahoraBase = 100000;
+    vi.spyOn(Date, 'now').mockReturnValue(ahoraBase);
+    resolver.mockResolvedValueOnce(route);
+    resolver.mockImplementation(() => new Promise((resolve, reject) => pending.push({ resolve, reject })));
+    const { result } = renderHook(() => useNavegacion());
+
+    act(() => result.current.iniciar(site, 'walk'));
+    await waitFor(() => expect(result.current.estado).toBe('navegando'));
+    resolver.mockClear();
+
+    act(() => result.current.recalcularAhora());
+    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+    await act(async () => pending[0].reject(new Error('fallo uno')));
+
+    vi.spyOn(Date, 'now').mockReturnValue(ahoraBase + 15001);
+    act(() => result.current.recalcularAhora());
+    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(2));
+    await act(async () => pending[1].reject(new Error('fallo dos')));
+
+    vi.spyOn(Date, 'now').mockReturnValue(ahoraBase + 30002);
+    act(() => result.current.recalcularAhora());
+    expect(resolver).toHaveBeenCalledTimes(2);
+
+    vi.spyOn(Date, 'now').mockReturnValue(ahoraBase + 45001);
+    act(() => result.current.recalcularAhora());
+    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(3));
+    await act(async () => pending[2].reject(new Error('fallo tres')));
+
+    vi.spyOn(Date, 'now').mockReturnValue(ahoraBase + 100000);
+    act(() => result.current.recalcularAhora());
+    expect(resolver).toHaveBeenCalledTimes(3);
+
+    vi.spyOn(Date, 'now').mockReturnValue(ahoraBase + 105001);
+    act(() => result.current.recalcularAhora());
+    await waitFor(() => expect(resolver).toHaveBeenCalledTimes(4));
+    await act(async () => pending[3].resolve(route));
   });
 
   it('ignores a pending route response after navigation is stopped', async () => {
     let resolveRoute;
-    resolver.mockImplementationOnce(() => new Promise((resolve) => { resolveRoute = resolve; }));
+    let requestOptions;
+    resolver.mockImplementationOnce((_origen, _destino, _modo, _nombre, options) => {
+      requestOptions = options;
+      return new Promise((resolve) => { resolveRoute = resolve; });
+    });
     const { result } = renderHook(() => useNavegacion());
 
     act(() => result.current.iniciar(site, 'walk'));
     await waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+    expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
     act(() => result.current.detener());
+    expect(requestOptions.signal.aborted).toBe(true);
 
     await act(async () => resolveRoute(route));
     expect(result.current.estado).toBe('inactivo');

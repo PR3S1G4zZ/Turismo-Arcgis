@@ -3,7 +3,8 @@
 //  - la ubicación del usuario es una FLECHA que apunta a su dirección de marcha,
 //  - al navegar, el MAPA ROTA para que la marcha quede siempre hacia arriba
 //    (modo course-up) con una leve inclinación 3D,
-//  - el basemap es el vectorial de ArcGIS ("navigation"), con respaldo a CARTO.
+//  - el basemap es el vectorial de ArcGIS ("navigation"), con respaldo raster
+//    sin clave para que la navegación siga siendo comprobable en desarrollo.
 // El motor de navegación (rutas, voz, recálculo) vive en useNavegacion y no se
 // toca aquí: este componente solo dibuja y mueve la cámara.
 import { useEffect, useState, useContext, useCallback, useRef, useMemo } from 'react';
@@ -30,9 +31,21 @@ const ZOOM_VISTA = 15;
 // Inclinación de la cámara al navegar: el toque 3D de Waze/Google (grados).
 const PITCH_NAVEGACION = 50;
 
-// Basemaps de respaldo (vectoriales, sin token) si ArcGIS no está disponible.
-const CARTO_CLARO = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
-const CARTO_OSCURO = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+// Respaldo raster sin credenciales si ArcGIS no está disponible. No sustituye
+// al proveedor principal de rutas: solo evita que un basemap sin token deje la
+// pantalla inutilizable durante la prueba móvil.
+const OSM_RASTER_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'osm-raster', type: 'raster', source: 'osm' }],
+};
 
 /** URL del estilo vectorial de ArcGIS ("navigation" / "navigation-night"). */
 const estiloArcgis = (isDark, token) =>
@@ -182,10 +195,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const [loading, setLoading] = useState(() => !(site.lat && site.lng));
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
-  // Token del basemap de ArcGIS (null → se usa el respaldo de CARTO).
+  // Token del basemap de ArcGIS (null → se usa el respaldo OSM sin clave).
   const [token, setToken] = useState(null);
   const [tokenListo, setTokenListo] = useState(false);
-  // Se activa si ArcGIS rechaza el token: entonces se cae al respaldo de CARTO.
+  // Se activa si ArcGIS rechaza el token: entonces se cae al respaldo OSM.
   const [arcgisFallo, setArcgisFallo] = useState(false);
   // Mensaje si el basemap no logra cargar (diagnóstico visible en el móvil).
   const [mapError, setMapError] = useState(null);
@@ -282,6 +295,14 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const mostrarTrayecto = showRoute && ruta && (previsualizando || navegando || llegado);
   const enSeguimiento = mostrarTrayecto && navegando && gpsConfiable && !posicionSimulada;
 
+  const manejarInicioGesto = useCallback((event) => {
+    // MapLibre emits the same lifecycle events for camera transitions started
+    // by the application. Only an event with `originalEvent` is attributable
+    // to a real pointer/touch/keyboard gesture by the user.
+    if (!event?.originalEvent) return;
+    if (enSeguimiento) dejarDeSeguir();
+  }, [enSeguimiento, dejarDeSeguir]);
+
   const moviendo = (userPosition?.speed ?? 0) > VELOCIDAD_MIN_MS;
   const rumboElegido = seleccionarRumbo({
     moviendo,
@@ -319,7 +340,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
 
   const mapStyle = useMemo(() => {
     if (token && !arcgisFallo) return estiloArcgis(isDark, token);
-    return isDark ? CARTO_OSCURO : CARTO_CLARO;
+    return OSM_RASTER_STYLE;
   }, [token, isDark, arcgisFallo]);
 
   // Asegura el token en TODA petición a ArcGIS (tiles, glyphs, sprites), no solo
@@ -335,12 +356,18 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     [token]
   );
 
-  // Cada entrada a una sesión de GPS en vivo recupera el seguimiento aunque la
-  // sesión anterior hubiera quedado pausada por un gesto manual.
+  // Solo una transición real de la navegación inactiva a activa inicia el
+  // seguimiento. Una pérdida y recuperación de GPS no debe deshacer una pausa
+  // manual de la cámara dentro de la misma sesión.
   useEffect(() => {
-    if (enSeguimiento && !sesionEnVivoRef.current) setSiguiendo(true);
-    sesionEnVivoRef.current = enSeguimiento;
-  }, [enSeguimiento]);
+    const sesionActiva = mostrarTrayecto && navegando;
+    if (!sesionActiva) {
+      sesionEnVivoRef.current = false;
+      return;
+    }
+    if (!sesionEnVivoRef.current) setSiguiendo(true);
+    sesionEnVivoRef.current = true;
+  }, [mostrarTrayecto, navegando]);
 
   // ─── Cámara ───────────────────────────────────────────────
   const manejarCargaMapa = useCallback((e) => {
@@ -360,11 +387,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     if (!mapListo || !enSeguimiento || !siguiendo || !userPosition) return;
     const map = mapRef.current;
     if (!map) return;
-    map.stop();
     const bearingMapa = map.getBearing?.();
-    const rumboGps = normalizarRumbo(userPosition.heading);
-    const bearing = rumboGps != null
-      ? rumboGps
+    const rumboCamara = normalizarRumbo(rumboVisual);
+    const bearing = rumboCamara != null
+      ? rumboCamara
       : Number.isFinite(bearingMapa)
         ? bearingMapa
         : bearingViewportRef.current;
@@ -378,7 +404,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     actualizarBearingViewport({ viewState: { bearing } });
     marcar(MARCAS.CAMARA_ACTUALIZADA);
     medir(TRAMOS.GPS_CAMARA, MARCAS.GPS_ACEPTADO, MARCAS.CAMARA_ACTUALIZADA);
-  }, [mapListo, enSeguimiento, siguiendo, userPosition, actualizarBearingViewport]);
+  }, [mapListo, enSeguimiento, siguiendo, userPosition, rumboVisual, actualizarBearingViewport]);
 
   useEffect(() => {
     if (orientacion.heading == null) return;
@@ -479,10 +505,15 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           const status = e?.error?.status;
           const msg = e?.error?.message || String(e?.error || 'error desconocido');
           console.error('[mapa] MapLibre error:', status, msg, e);
-          // Si ArcGIS rechaza el token (auth), se cambia al basemap de respaldo
-          // en vez de dejar el mapa en blanco.
-          if (token && !arcgisFallo && [401, 403, 498, 499].includes(status)) {
-            console.warn(`[mapa] Basemap de ArcGIS rechazado (${status}); usando respaldo CARTO.`);
+          // ArcGIS puede devolver un documento de error con HTTP 200 (por
+          // ejemplo, "API KEY REQUIRED"). También en ese caso se cambia al
+          // respaldo sin credenciales, en vez de dejar el mapa en blanco.
+          const arcgisRechazado = token && !arcgisFallo && (
+            [401, 403, 498, 499].includes(status)
+            || /api\s*key\s*required|invalid\s+token|not\s+authorized|unauthori[sz]ed/i.test(msg)
+          );
+          if (arcgisRechazado) {
+            console.warn(`[mapa] Basemap de ArcGIS rechazado (${status || 'respuesta de error'}); usando respaldo OSM.`);
             setArcgisFallo(true);
             return;
           }
@@ -490,18 +521,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           // del basemap); los errores transitorios de tiles ya en marcha se ignoran.
           if (!mapListo) setMapError(`${status ? status + ' – ' : ''}${msg}`);
         }}
-        onDragStart={() => {
-          if (enSeguimiento) dejarDeSeguir();
-        }}
-        onRotateStart={() => {
-          if (enSeguimiento) dejarDeSeguir();
-        }}
-        onPitchStart={() => {
-          if (enSeguimiento) dejarDeSeguir();
-        }}
-        onZoomStart={() => {
-          if (enSeguimiento) dejarDeSeguir();
-        }}
+        onDragStart={manejarInicioGesto}
+        onRotateStart={manejarInicioGesto}
+        onPitchStart={manejarInicioGesto}
+        onZoomStart={manejarInicioGesto}
         attributionControl={{ compact: true }}
         style={{ width: '100%', height: '100%' }}
       >

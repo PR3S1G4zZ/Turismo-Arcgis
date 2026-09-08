@@ -3,7 +3,7 @@
 // sobre el basemap vectorial de ArcGIS, que se autentica con un token de ArcGIS.
 // Aquí se entrega uno de corta duración (el mismo token de aplicación que ya usa
 // el ruteo). Si no hay credenciales, se responde 204 y el cliente cae al basemap
-// de respaldo (CARTO), igual que el ruteo cae a OSRM.
+// de respaldo raster sin credenciales, igual que el ruteo cae a OSRM.
 //
 // GET /api/mapa/token → { token, expiraEn } | 204 si no hay ArcGIS configurado.
 import { Router } from 'express';

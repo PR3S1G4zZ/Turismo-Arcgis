@@ -95,7 +95,7 @@ html.dark {
   --shadow-card:  none;
 
   /* Trazado de ruta: más claro y saturado que en modo día para que resalte
-     sobre el basemap oscuro de ArcGIS/CARTO en vez de perderse en él. */
+     sobre el basemap oscuro de ArcGIS/OpenStreetMap en vez de perderse en él. */
   --color-route-active:   #5B9CFF;
   --color-route-done:     #4B5570;
 }

@@ -29,6 +29,11 @@ import { googleCalendarRouter } from './routes/googleCalendar.js';
 
 const app = express();
 
+// La prueba móvil entra por un único proxy HTTPS (ngrok). Confiar solo en ese
+// salto permite que express-rate-limit interprete X-Forwarded-For correctamente
+// sin tratar cualquier cadena de proxies como confiable.
+app.set('trust proxy', 1);
+
 // Seguridad de cabeceras. Se permite el uso cruzado de recursos para que el
 // frontend (otro origen en desarrollo) pueda cargar las imágenes de /uploads.
 // img-src se amplía para las fotos de respaldo de Unsplash (SiteCard.jsx /
@@ -36,10 +41,11 @@ const app = express();
 // InteractiveMap.jsx geocodifica direcciones sin lat/lng directo contra
 // Nominatim desde el propio navegador (no pasa por el backend).
 //
-// El mapa usa MapLibre GL con el basemap vectorial de ArcGIS (con respaldo a
-// CARTO). MapLibre pide tiles/glyphs/sprites por fetch (connect-src) y también
+// El mapa usa MapLibre GL con el basemap vectorial de ArcGIS (con respaldo
+// raster de OpenStreetMap). MapLibre pide tiles/glyphs/sprites por fetch (connect-src) y también
 // como imágenes (img-src), y corre su render en web workers (worker-src blob:).
 const HOSTS_MAPA = [
+  'https://tile.openstreetmap.org',
   'https://*.basemaps.cartocdn.com',
   'https://basemaps.cartocdn.com',
   'https://basemapstyles-api.arcgis.com',
@@ -59,6 +65,14 @@ app.use(helmet({
     },
   },
 }));
+
+// La navegación móvil necesita ambas capacidades en el origen de la SPA.
+// Declararlas explícitamente evita que un proxy de despliegue añada una
+// política restrictiva que silencie el permiso GPS o Screen Wake Lock.
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'geolocation=(self), screen-wake-lock=(self)');
+  next();
+});
 
 // En producción manda la lista blanca de CORS_ORIGIN. En desarrollo se acepta
 // cualquier localhost: Vite salta de puerto (5173 → 5174 → …) cuando el

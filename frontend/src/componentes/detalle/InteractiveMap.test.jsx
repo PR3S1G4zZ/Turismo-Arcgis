@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
+import { tangenteRuta } from '../../utilidades/geoRuta';
 
 const map = {
   stop: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('./InteractiveMap.css', () => ({}));
 
 const orientationState = vi.hoisted(() => ({
   heading: null,
+  ultimaActualizacion: null,
   necesitaPermiso: false,
   permiso: 'concedido',
   activar: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock('react-map-gl/maplibre', async () => {
 vi.mock('../../hooks/useOrientacion', () => ({
   useOrientacion: () => ({
     heading: orientationState.heading,
+    ultimaActualizacion: orientationState.ultimaActualizacion,
     necesitaPermiso: orientationState.necesitaPermiso,
     permiso: orientationState.permiso,
     activar: orientationState.activar,
@@ -86,8 +89,9 @@ describe('InteractiveMap camera lifecycle', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    orientationState.heading = null;
+  vi.clearAllMocks();
+  orientationState.heading = null;
+    orientationState.ultimaActualizacion = null;
     orientationState.necesitaPermiso = false;
     orientationState.permiso = 'concedido';
     map.getZoom.mockReturnValue(16);
@@ -132,25 +136,36 @@ describe('InteractiveMap camera lifecycle', () => {
     log.mockRestore();
   });
 
-  it('owns a trusted live camera update by stopping before a short course-up ease', async () => {
+  it('owns a trusted live camera update with one short course-up ease', async () => {
     renderMap(navigation());
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     expect(map.easeTo).toHaveBeenCalledTimes(1);
-    expect(map.stop).toHaveBeenCalledBefore(map.easeTo);
+    // MapLibre's easeTo already cancels the previous transition internally;
+    // an explicit stop here would restart the animation on every GPS fix.
+    expect(map.stop).not.toHaveBeenCalled();
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
       center: [-75.611, 6.171], bearing: 90, pitch: 50, duration: 250,
     }));
   });
 
-  it('keeps the current bearing while following live GPS with no finite heading', async () => {
+  it('uses the route tangent while following live GPS with no finite heading', async () => {
     renderMap(navigation({ posicion: { ...position, heading: null } }));
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
-    expect(map.stop).toHaveBeenCalledBefore(map.easeTo);
+    expect(map.stop).not.toHaveBeenCalled();
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({
-      center: [-75.611, 6.171], bearing: 23, pitch: 50, duration: 250,
+      center: [-75.611, 6.171], bearing: tangenteRuta({ puntos }), pitch: 50, duration: 250,
     }));
+  });
+
+  it('uses the same selected compass heading for the arrow and the following camera', async () => {
+    orientationState.heading = 180;
+    orientationState.ultimaActualizacion = Date.now();
+    renderMap(navigation({ posicion: { ...position, heading: 90, speed: 0 } }));
+
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ bearing: 180 }));
   });
 
   it('does not recenter an informational map on every GPS update', async () => {
@@ -172,7 +187,7 @@ describe('InteractiveMap camera lifecycle', () => {
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     expect(mapProps[eventName]).toBeTypeOf('function');
 
-    act(() => mapProps[eventName]());
+    act(() => mapProps[eventName]({ originalEvent: { type: 'pointerdown' } }));
     expect(screen.getByRole('button', { name: /centrar en mí/i })).toBeTruthy();
   });
 
@@ -181,8 +196,17 @@ describe('InteractiveMap camera lifecycle', () => {
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     expect(mapProps.onZoomStart).toBeTypeOf('function');
 
-    act(() => mapProps.onZoomStart());
+    act(() => mapProps.onZoomStart({ originalEvent: { type: 'wheel' } }));
     expect(screen.getByRole('button', { name: /centrar en mí/i })).toBeTruthy();
+  });
+
+  it('does not pause follow for a programmatic camera start without an original event', async () => {
+    const view = renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+
+    act(() => mapProps.onZoomStart({ type: 'zoomstart' }));
+
+    expect(view.container.querySelector('.map-actions--recentrar')).toBeNull();
   });
 
   it('keeps the compass activation action available during live navigation', async () => {
@@ -202,7 +226,7 @@ describe('InteractiveMap camera lifecycle', () => {
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     map.easeTo.mockClear();
 
-    act(() => mapProps.onDragStart());
+    act(() => mapProps.onDragStart({ originalEvent: { type: 'pointerdown' } }));
     view.rerender(
       <NavegacionContext.Provider value={navigation({ posicion: { ...position, heading: 100 } })}>
         <InteractiveMap site={site} showRoute />
@@ -217,7 +241,7 @@ describe('InteractiveMap camera lifecycle', () => {
     const view = renderMap(navigation());
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     map.easeTo.mockClear();
-    act(() => mapProps.onDragStart());
+    act(() => mapProps.onDragStart({ originalEvent: { type: 'pointerdown' } }));
 
     act(() => mapProps.onMove({ viewState: { bearing: 120 } }));
 
@@ -228,13 +252,32 @@ describe('InteractiveMap camera lifecycle', () => {
   it('restarts only camera follow when pressing recenter', async () => {
     renderMap(navigation());
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
-    act(() => mapProps.onDragStart());
+    act(() => mapProps.onDragStart({ originalEvent: { type: 'pointerdown' } }));
     map.easeTo.mockClear();
 
     act(() => screen.getByRole('button', { name: /centrar en/i }).click());
 
     await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
     expect(map.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ bearing: 90, duration: 250 }));
+  });
+
+  it('keeps follow paused when GPS recovers during the same navigation session', async () => {
+    const view = renderMap(navigation());
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    act(() => mapProps.onDragStart({ originalEvent: { type: 'pointerdown' } }));
+
+    view.rerender(
+      <NavegacionContext.Provider value={navigation({ gpsConfiable: false })}>
+        <InteractiveMap site={site} showRoute />
+      </NavegacionContext.Provider>,
+    );
+    view.rerender(
+      <NavegacionContext.Provider value={navigation({ gpsConfiable: true })}>
+        <InteractiveMap site={site} showRoute />
+      </NavegacionContext.Provider>,
+    );
+
+    expect(view.container.querySelector('.map-actions--recentrar')).not.toBeNull();
   });
 
   it('returns explicitly to north-up when live navigation exits', async () => {

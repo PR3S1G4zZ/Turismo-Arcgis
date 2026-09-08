@@ -54,6 +54,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
     gpsError,
     gpsPermiso,
     gpsConfiable,
+    calidadGps,
     ultimaActualizacion,
     reintentarGps,
     origenManual,
@@ -257,6 +258,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
   const seguimientoEnVivo = navegando && gpsConfiable && !userLocationSimulated;
   const estadoUltimoFix = mensajeEstadoGps({
     gpsConfiable,
+    calidadGps,
     ultimaActualizacion,
     ahora: relojGps || ultimaActualizacion,
   });
@@ -357,7 +359,9 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
             {/* Estado de la ubicación real del usuario */}
             {!userPosition ? (
               <p className="route-gps-status route-gps-status--wait">
-                <RiUserLocationLine /> Obteniendo tu ubicación GPS…
+                <RiUserLocationLine /> {calidadGps === 'degradada'
+                  ? 'Señal GPS imprecisa; esperando una fijación más estable…'
+                  : 'Obteniendo tu ubicación GPS…'}
               </p>
             ) : userLocationSimulated ? (
               <>
@@ -395,7 +399,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
                 )}
               </>
             ) : (
-              <p className="route-gps-status route-gps-status--ok">
+              <p className={`route-gps-status ${calidadGps === 'confiable' ? 'route-gps-status--ok' : 'route-gps-status--warn'}`}>
                 <RiUserLocationLine /> {estadoUltimoFix}
               </p>
             )}
@@ -423,7 +427,7 @@ export const RouteModal = ({ isOpen, onClose, site }) => {
               </p>
             )}
             {!previsualizando && (
-              <p className={`route-gps-status ${gpsConfiable ? 'route-gps-status--ok' : 'route-gps-status--warn'}`}>
+              <p className={`route-gps-status ${gpsConfiable && calidadGps === 'confiable' ? 'route-gps-status--ok' : 'route-gps-status--warn'}`}>
                 <RiUserLocationLine /> {estadoUltimoFix}
               </p>
             )}

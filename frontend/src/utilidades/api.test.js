@@ -20,4 +20,23 @@ describe('rutasApi.resolver', () => {
       }),
     );
   });
+
+  it('forwards an optional abort signal to the route request', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+
+    await rutasApi.resolver(
+      { lat: 0, lng: 0 },
+      { lat: 0.001, lng: 0.001 },
+      'walk',
+      'Destino B',
+      { signal: controller.signal },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/rutas/resolver'),
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
 });
