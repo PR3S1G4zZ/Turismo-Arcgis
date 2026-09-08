@@ -74,8 +74,18 @@ function redactarInstruccion(paso) {
  * @param {{lat:number,lng:number}} origen
  * @param {{lat:number,lng:number}} destino
  * @param {'walk'|'car'} modo
+ * @param {{fallbackAplicado?: boolean, motivo?: string|null, advertencias?: string[]}} [opciones]
  */
-export async function resolverRutaOsrm(origen, destino, modo) {
+export async function resolverRutaOsrm(
+  origen,
+  destino,
+  modo,
+  {
+    fallbackAplicado = true,
+    motivo = 'arcgis-no-configurado',
+    advertencias = [],
+  } = {},
+) {
   const perfil = modo === 'walk' ? 'foot' : 'driving';
   const coords = `${origen.lng},${origen.lat};${destino.lng},${destino.lat}`;
   const url = `${BASE}/${perfil}/${coords}?overview=full&geometries=geojson&steps=true`;
@@ -109,8 +119,26 @@ export async function resolverRutaOsrm(origen, destino, modo) {
 
   const distanciaM = Number(ruta.distance) || 0;
 
+  const advertenciasFinales = [...advertencias];
+  if (modo === 'car') advertenciasFinales.push('trafico-no-aplicado');
+
   const normalizado = {
     fuente: 'osrm',
+    fallbackAplicado,
+    motivo,
+    travelModeSolicitado: modo,
+    travelModeUtilizado: perfil,
+    advertencias: advertenciasFinales,
+    returnStops: false,
+    ajustesParadas: {
+      returnStops: false,
+      preserveFirstStop: false,
+      preserveLastStop: false,
+      solicitadas: 2,
+      devueltas: 0,
+      estados: [],
+      ajustadas: null,
+    },
     puntos,
     pasos,
     distanciaM,

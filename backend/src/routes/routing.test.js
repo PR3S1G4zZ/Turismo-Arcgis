@@ -63,23 +63,29 @@ const fallaRed = () => Promise.reject(new Error('network fail (mock)'));
 const httpNoOk = (status) => () => Promise.resolve({ ok: false, status, json: async () => ({}) });
 const cuerpoConError = () => Promise.resolve({ ok: true, json: async () => ({ error: { message: 'token inválido' } }) });
 const osrmOk = () => Promise.resolve({ ok: true, json: async () => fixtureOsrmOk() });
-const arcgisOk = () => Promise.resolve({ ok: true, json: async () => fixtureArcgisOk() });
+const arcgisOk = (url) => Promise.resolve({
+  ok: true,
+  json: async () => String(url).endsWith('/Route_World')
+    ? { supportedTravelModes: [{ name: 'Walking Time', impedanceAttributeName: 'WalkTime' }] }
+    : fixtureArcgisOk(),
+});
 
 describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => {
-  let apiKeyOriginal;
+  let arcgisOriginal;
 
   beforeEach(() => {
-    apiKeyOriginal = config.arcgis.apiKey;
+    arcgisOriginal = { ...config.arcgis };
     config.arcgis.apiKey = 'test-key'; // hayArcgis() === true; nunca se usan credenciales reales.
   });
 
   afterEach(() => {
-    config.arcgis.apiKey = apiKeyOriginal;
+    Object.assign(config.arcgis, arcgisOriginal);
     vi.unstubAllGlobals();
   });
 
   it('responde con la ruta de ArcGIS cuando el servicio funciona', async () => {
-    vi.stubGlobal('fetch', mockFetchPorDominio(arcgisOk, osrmOk));
+    const osrm = vi.fn(osrmOk);
+    vi.stubGlobal('fetch', mockFetchPorDominio(arcgisOk, osrm));
 
     const res = await request(appDePrueba())
       .post('/api/rutas/resolver')
@@ -88,6 +94,101 @@ describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => 
     expect(res.status).toBe(200);
     expect(res.body.fuente).toBe('arcgis');
     expect(res.body.puntos.length).toBeGreaterThan(0);
+    expect(osrm).not.toHaveBeenCalled();
+  });
+
+  it('expone la fuente real y el contrato de observabilidad en éxito ArcGIS', async () => {
+    const cuerpos = [];
+    const arcgisConModoYParadas = (_url, init) => {
+      const cuerpo = new URLSearchParams(init?.body);
+      cuerpos.push(cuerpo);
+      if (!String(_url).endsWith('/solve')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            supportedTravelModes: [{
+              name: 'Walking Time',
+              impedanceAttributeName: 'WalkTime',
+            }],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ...fixtureArcgisOk(),
+          stops: {
+            features: [
+              { attributes: { Name: 'Tu ubicación', Status: 'OK', Sequence: 1 } },
+              { attributes: { Name: 'Parque de prueba', Status: 'OK', Sequence: 2 } },
+            ],
+          },
+        }),
+      });
+    };
+    vi.stubGlobal('fetch', mockFetchPorDominio(arcgisConModoYParadas, osrmOk));
+
+    const res = await request(appDePrueba())
+      .post('/api/rutas/resolver')
+      .send({ origen, destino, modo: 'walk', nombreDestino: 'Parque de prueba' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      fuente: 'arcgis',
+      fallbackAplicado: false,
+      motivo: null,
+      travelModeSolicitado: 'walk',
+      travelModeUtilizado: 'Walking Time',
+      advertencias: [],
+      ajustesParadas: expect.objectContaining({
+        returnStops: true,
+        solicitadas: 2,
+        devueltas: 2,
+        estados: ['OK', 'OK'],
+      }),
+    }));
+    const solveBody = cuerpos.find((body) => body.has('returnRoutes'));
+    expect(solveBody.get('returnStops')).toBe('true');
+    expect(solveBody.get('preserveFirstStop')).toBe('true');
+    expect(solveBody.get('preserveLastStop')).toBe('true');
+  });
+
+  it('informa cuando ArcGIS ajustó la geometría de una parada devuelta', async () => {
+    const arcgisConParadasAjustadas = (_url, init) => {
+      const cuerpo = new URLSearchParams(init?.body);
+      if (!cuerpo.has('returnRoutes')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ supportedTravelModes: [{ name: 'Walking Time' }] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ...fixtureArcgisOk(),
+          stops: {
+            features: [
+              {
+                geometry: { x: -75.6111, y: 6.1711 },
+                attributes: { Status: 'OK', Sequence: 1 },
+              },
+              {
+                geometry: { x: -75.6211, y: 6.1811 },
+                attributes: { Status: 'OK', Sequence: 2 },
+              },
+            ],
+          },
+        }),
+      });
+    };
+    vi.stubGlobal('fetch', mockFetchPorDominio(arcgisConParadasAjustadas, osrmOk));
+
+    const res = await request(appDePrueba())
+      .post('/api/rutas/resolver')
+      .send({ origen, destino, modo: 'walk' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ajustesParadas.ajustadas).toBe(true);
   });
 
   it('cae a OSRM cuando ArcGIS falla por error de red', async () => {
@@ -99,6 +200,62 @@ describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => 
 
     expect(res.status).toBe(200);
     expect(res.body.fuente).toBe('osrm');
+  });
+
+  it('marca el fallback ArcGIS→OSRM con un motivo seguro y no registra el error crudo', async () => {
+    const advertencias = [];
+    const errores = [];
+    const warnOriginal = console.warn;
+    const errorOriginal = console.error;
+    console.warn = (...args) => advertencias.push(args.map(String).join(' '));
+    console.error = (...args) => errores.push(args.map(String).join(' '));
+    vi.stubGlobal('fetch', mockFetchPorDominio(
+      () => Promise.reject(new Error('token=super-secret arcgis network failure')),
+      osrmOk,
+    ));
+
+    try {
+      const res = await request(appDePrueba())
+        .post('/api/rutas/resolver')
+        .send({ origen, destino, modo: 'car' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(expect.objectContaining({
+        fuente: 'osrm',
+        fallbackAplicado: true,
+        motivo: 'arcgis-fallo',
+        travelModeSolicitado: 'car',
+        travelModeUtilizado: 'driving',
+      }));
+      expect(res.body.advertencias).toEqual(expect.arrayContaining(['arcgis-fallo']));
+      expect(JSON.stringify(res.body)).not.toContain('super-secret');
+      expect(advertencias.join('\n')).not.toContain('super-secret');
+      expect(errores.join('\n')).not.toContain('super-secret');
+    } finally {
+      console.warn = warnOriginal;
+      console.error = errorOriginal;
+    }
+  });
+
+  it('declara el fallback OSRM cuando ArcGIS no está configurado', async () => {
+    config.arcgis.apiKey = '';
+    config.arcgis.clientId = '';
+    config.arcgis.clientSecret = '';
+    vi.stubGlobal('fetch', mockFetchPorDominio(arcgisOk, osrmOk));
+
+    const res = await request(appDePrueba())
+      .post('/api/rutas/resolver')
+      .send({ origen, destino, modo: 'walk' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      fuente: 'osrm',
+      fallbackAplicado: true,
+      motivo: 'arcgis-no-configurado',
+      travelModeSolicitado: 'walk',
+      travelModeUtilizado: 'foot',
+    }));
+    expect(res.body.advertencias).toEqual(expect.arrayContaining(['arcgis-no-configurado']));
   });
 
   it('cae a OSRM cuando ArcGIS responde con un status HTTP de error', async () => {
@@ -124,14 +281,31 @@ describe('POST /api/rutas/resolver — contrato ArcGIS/OSRM (HARDEN-01)', () => 
   });
 
   it('devuelve 502 con un mensaje genérico cuando ArcGIS y el respaldo OSRM fallan los dos', async () => {
-    vi.stubGlobal('fetch', mockFetchPorDominio(fallaRed, fallaRed));
+    const errores = [];
+    const errorOriginal = console.error;
+    console.error = (...args) => errores.push(args.map(String).join(' '));
+    vi.stubGlobal('fetch', mockFetchPorDominio(
+      () => Promise.reject(new Error('token=arcgis-secret')),
+      () => Promise.reject(new Error('authorization=osrm-secret')),
+    ));
 
-    const res = await request(appDePrueba())
-      .post('/api/rutas/resolver')
-      .send({ origen, destino, modo: 'walk' });
+    try {
+      const res = await request(appDePrueba())
+        .post('/api/rutas/resolver')
+        .send({ origen, destino, modo: 'walk' });
 
-    expect(res.status).toBe(502);
-    expect(res.body.error).toMatch(/no se pudo calcular la ruta/i);
+      expect(res.status).toBe(502);
+      expect(res.body).toEqual(expect.objectContaining({
+        error: expect.stringMatching(/no se pudo calcular la ruta/i),
+        fuente: null,
+        fallbackAplicado: true,
+        motivo: 'servicios-no-disponibles',
+      }));
+      expect(JSON.stringify(res.body)).not.toContain('secret');
+      expect(errores.join('\n')).not.toContain('secret');
+    } finally {
+      console.error = errorOriginal;
+    }
   });
 
   it('falls back to OSRM when ArcGIS exceeds the routing timeout', async () => {

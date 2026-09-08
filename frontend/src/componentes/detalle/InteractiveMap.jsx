@@ -20,15 +20,13 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { BasemapStyle } from '@esri/maplibre-arcgis';
 import { RiNavigationLine, RiFocus3Line, RiCompass3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
-import { useOrientacion } from '../../hooks/useOrientacion';
+import { useNavigationFrame } from '../../hooks/useNavigationFrame';
+import { cameraOffsetForAnchor, useNavigationCamera } from '../../hooks/useNavigationCamera';
+import { BEARING_SOURCES, CAMERA_MODES } from '../../utilidades/navigationContracts';
 import { mapaApi } from '../../utilidades/api';
 import {
-  EDAD_MAXIMA_BRUJULA_MS,
-  VELOCIDAD_MIN_MS,
   normalizarRumbo,
   rotacionRelativaViewport,
-  seleccionarRumbo,
-  tangenteRuta,
 } from '../../utilidades/geoRuta';
 import { marcar, medir, MARCAS, TRAMOS } from '../../utilidades/diagnosticoLatencias';
 import './InteractiveMap.css';
@@ -36,8 +34,49 @@ import './InteractiveMap.css';
 // Zoom cercano mientras se navega, para ver la calle y la siguiente esquina.
 const ZOOM_NAVEGACION = 17;
 const ZOOM_VISTA = 15;
-// Inclinación de la cámara al navegar: el toque 3D de Waze/Google (grados).
-const PITCH_NAVEGACION = 50;
+
+// El scheduler de frame publica muchos pasos durante una interpolación. La
+// cámara puede consumir ese mismo frame, pero no necesita reiniciar MapLibre
+// por cambios submétricos de cada tick: hacerlo genera una realimentación de
+// onMove y, en React, una cascada de renders sin valor visual.
+const CAMERA_TARGET_POSITION_EPSILON_M = 0.75;
+const CAMERA_TARGET_BEARING_EPSILON_DEG = 0.75;
+const CAMERA_TARGET_SCALAR_EPSILON = 0.01;
+const METROS_POR_GRADO = 111320;
+
+function compactCameraTarget(target) {
+  if (!target || !Array.isArray(target.center) || target.center.length < 2) return null;
+  return {
+    center: [Number(target.center[0]), Number(target.center[1])],
+    bearing: Number(target.bearing),
+    pitch: Number(target.pitch),
+    zoom: Number(target.zoom),
+    anchorRatio: Number.isFinite(target.anchorRatio) ? target.anchorRatio : null,
+    duration: Number.isFinite(target.duration) ? target.duration : 0,
+  };
+}
+
+function circularCameraDifference(first, second) {
+  if (![first, second].every(Number.isFinite)) return Infinity;
+  return Math.abs((((first - second) % 360) + 540) % 360 - 180);
+}
+
+function cameraTargetsEquivalent(first, second) {
+  const anterior = compactCameraTarget(first);
+  const siguiente = compactCameraTarget(second);
+  if (!anterior || !siguiente) return false;
+  const latitudMedia = ((anterior.center[1] + siguiente.center[1]) / 2) * (Math.PI / 180);
+  const deltaLngM = (anterior.center[0] - siguiente.center[0])
+    * METROS_POR_GRADO
+    * Math.max(0.2, Math.cos(latitudMedia));
+  const deltaLatM = (anterior.center[1] - siguiente.center[1]) * METROS_POR_GRADO;
+  return Math.hypot(deltaLngM, deltaLatM) <= CAMERA_TARGET_POSITION_EPSILON_M
+    && circularCameraDifference(anterior.bearing, siguiente.bearing) <= CAMERA_TARGET_BEARING_EPSILON_DEG
+    && Math.abs(anterior.pitch - siguiente.pitch) <= CAMERA_TARGET_SCALAR_EPSILON
+    && Math.abs(anterior.zoom - siguiente.zoom) <= CAMERA_TARGET_SCALAR_EPSILON
+    && anterior.anchorRatio === siguiente.anchorRatio
+    && anterior.duration === siguiente.duration;
+}
 
 // Respaldo raster sin credenciales si ArcGIS no está disponible. No sustituye
 // al proveedor principal de rutas: solo evita que un basemap sin token deje la
@@ -71,6 +110,14 @@ const BASEMAP_STYLES = {
   light: 'arcgis/navigation',
   dark: 'arcgis/navigation-night',
 };
+
+const ORIENTACION_VACIA = Object.freeze({
+  heading: null,
+  necesitaPermiso: false,
+  permiso: 'no-requiere',
+  ultimaActualizacion: null,
+  activar: () => {},
+});
 
 const BASEMAP_REASON_LABELS = {
   'not-configured': 'ArcGIS no está configurado; se usa OSM.',
@@ -131,58 +178,6 @@ function lineaGeoJSON(puntos) {
   };
 }
 
-/**
- * Interpola suavemente la posición DIBUJADA del usuario entre lecturas reales
- * del GPS (llegan más o menos 1 por segundo): sin esto, el punto salta de
- * golpe en vez de deslizarse. La posición REAL (la que usan el avance sobre
- * la ruta, el ETA y la cámara) no se toca — esto solo suaviza lo visual.
- */
-function usePosicionAnimada(objetivo, duracionMs = 600) {
-  const [mostrada, setMostrada] = useState(objetivo);
-  const mostradaRef = useRef(objetivo);
-  const rafRef = useRef(null);
-
-  useEffect(() => {
-    // Nada que animar: sin destino no hay hacia dónde deslizarse. El valor
-    // de retorno del hook ya cae a `null` más abajo sin tocar este estado.
-    if (!objetivo) return;
-
-    const origen = mostradaRef.current;
-    if (!origen) {
-      mostradaRef.current = objetivo;
-      setMostrada(objetivo);
-      return;
-    }
-
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    let inicio = null;
-    const paso = (t) => {
-      if (inicio == null) {
-        inicio = t;
-        marcar(MARCAS.MARCADOR_RENDER);
-        medir(TRAMOS.GPS_MARCADOR, MARCAS.GPS_ACEPTADO, MARCAS.MARCADOR_RENDER);
-      }
-      const avance = Math.min(1, (t - inicio) / duracionMs);
-      const suavizado = 1 - (1 - avance) ** 3; // ease-out cúbico
-      const punto = {
-        lat: origen.lat + (objetivo.lat - origen.lat) * suavizado,
-        lng: origen.lng + (objetivo.lng - origen.lng) * suavizado,
-      };
-      mostradaRef.current = punto;
-      setMostrada(punto);
-      if (avance < 1) rafRef.current = requestAnimationFrame(paso);
-    };
-    rafRef.current = requestAnimationFrame(paso);
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objetivo?.lat, objetivo?.lng, duracionMs]);
-
-  return objetivo ? mostrada : null;
-}
-
 /** Flecha de navegación del usuario (SVG). Se rota por CSS según el modo. */
 const FlechaUsuario = ({ rotacion }) => (
   <div className="user-arrow" style={{ transform: `rotate(${rotacion}deg)` }}>
@@ -206,23 +201,36 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     navegando,
     previsualizando,
     llegado,
+    pose: navigationPose,
+    modo,
+    orientacion: navigationOrientation,
   } = navegacion || {};
 
-  // Brújula del dispositivo: hace girar la flecha cuando el usuario está parado.
-  const orientacion = useOrientacion();
-
-  // Posición dibujada del usuario, deslizándose entre lecturas reales del GPS
-  // en vez de saltar. Se usa solo para el marcador y su halo — el avance de
-  // ruta y la cámara siguen leyendo `userPosition` directo, sin retraso.
-  const posicionAnimada = usePosicionAnimada(
-    userPosition ? { lat: userPosition.lat, lng: userPosition.lng } : null
-  );
+  // La brújula se escucha una sola vez en useNavegacion. El mapa únicamente
+  // consume sus acciones de permiso; el rumbo que pinta llega dentro de pose.
+  const orientacion = navigationOrientation || ORIENTACION_VACIA;
 
   const mapRef = useRef(null);
   const mapaNativoRef = useRef(null);
   const basemapRef = useRef(null);
   const basemapTemaRef = useRef(null);
   const esriAttributionRef = useRef(null);
+  const ultimoTargetCamaraRef = useRef(null);
+  const cameraMapRef = useRef({
+    easeTo: (target) => {
+      const map = mapRef.current;
+      const siguiente = compactCameraTarget(target);
+      if (!map || typeof map.easeTo !== 'function' || !siguiente) return;
+      if (cameraTargetsEquivalent(ultimoTargetCamaraRef.current, siguiente)) return;
+      ultimoTargetCamaraRef.current = siguiente;
+      const cameraOptions = {
+        ...target,
+        offset: cameraOffsetForAnchor(target.anchorRatio, map.getContainer?.()?.clientHeight),
+      };
+      delete cameraOptions.anchorRatio;
+      map.easeTo(cameraOptions);
+    },
+  });
   const [mapListo, setMapListo] = useState(false);
   const [bearingViewport, setBearingViewport] = useState(0);
   const bearingViewportRef = useRef(0);
@@ -272,10 +280,9 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDark]);
 
-  // La cámara sigue al usuario mientras navega, salvo que él mueva el mapa.
-  const [siguiendo, setSiguiendo] = useState(true);
-  const dejarDeSeguir = useCallback(() => setSiguiendo(false), []);
-  const sesionEnVivoRef = useRef(false);
+  // El estado autoritativo de la cámara vive en useNavigationCamera. Este
+  // espejo solo permite entregar su modo al frame en el siguiente render.
+  const [cameraModeInput, setCameraModeInput] = useState(CAMERA_MODES.OVERVIEW);
   const vistaInformativaAplicadaRef = useRef(false);
 
   // Popups (uno a la vez): 'site' | 'user' | null.
@@ -351,50 +358,124 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   // El trayecto solo se pinta cuando esta instancia del mapa está en modo ruta
   // y hay una navegación viva; el resto del tiempo el mapa es informativo.
   const mostrarTrayecto = showRoute && ruta && (previsualizando || navegando || llegado);
-  const enSeguimiento = mostrarTrayecto && navegando && gpsConfiable && !posicionSimulada;
 
+  // En una sesión normal la pose viene del motor compartido. El fallback
+  // conserva compatibilidad con consumidores antiguos del contexto mientras
+  // se actualizan: sigue produciendo una sola pose para ambos consumidores.
+  const poseForFrame = useMemo(() => {
+    if (navigationPose) return navigationPose;
+    if (!userPosition) return null;
+    return {
+      rawPosition: { lat: userPosition.lat, lng: userPosition.lng },
+      matchedPosition: null,
+      targetPosition: { lat: userPosition.lat, lng: userPosition.lng },
+      movementBearing: userPosition.heading,
+      arrowBearing: userPosition.heading,
+      cameraBearing: userPosition.heading,
+      speedEstimateMps: userPosition.speed,
+      accuracyM: userPosition.accuracy,
+      routeSegmentIndex: avanceRuta?.indice ?? null,
+      confidence: 'low',
+      isMoving: Number.isFinite(userPosition.speed) && userPosition.speed > 0,
+      isOffRoute: false,
+      bearingSource: 'held',
+      positionSource: 'raw',
+      timestamp: Number.isFinite(ultimaActualizacion) ? ultimaActualizacion : 0,
+    };
+  }, [navigationPose, userPosition, avanceRuta?.indice, ultimaActualizacion]);
+
+  const liveNavigation = Boolean(mostrarTrayecto && navegando);
+  const gpsDisponibleParaCamara = Boolean(gpsConfiable && !posicionSimulada);
+  const liveNavigationAnteriorRef = useRef(liveNavigation);
+  useEffect(() => {
+    if (liveNavigation && !liveNavigationAnteriorRef.current) {
+      // Una ruta nueva puede empezar en el mismo punto de la sesión anterior;
+      // el primer objetivo debe volver a aplicarse tras la vista informativa.
+      ultimoTargetCamaraRef.current = null;
+    }
+    liveNavigationAnteriorRef.current = liveNavigation;
+  }, [liveNavigation]);
+
+  const registrarActualizacionCamara = useCallback((target, metadata = {}) => {
+    const targetForGate = {
+      ...target,
+      duration: Number.isFinite(metadata.duration) ? metadata.duration : 0,
+    };
+    if (!mapListo || !mapRef.current || typeof mapRef.current.easeTo !== 'function') return;
+    if (cameraTargetsEquivalent(ultimoTargetCamaraRef.current, targetForGate)) return;
+    actualizarBearingViewport({ viewState: { bearing: target.bearing } });
+    marcar(MARCAS.CAMARA_ACTUALIZADA);
+    medir(TRAMOS.GPS_CAMARA, MARCAS.GPS_ACEPTADO, MARCAS.CAMARA_ACTUALIZADA);
+  }, [actualizarBearingViewport, mapListo]);
+
+  // El frame interpolado es la única fuente visual: el marcador y el hook de
+  // cámara reciben exactamente esta misma referencia en cada render.
+  const frame = useNavigationFrame({
+    pose: poseForFrame,
+    cameraMode: cameraModeInput,
+    enabled: Boolean(poseForFrame),
+  });
+  const cameraState = useNavigationCamera({
+    frame,
+    profile: modo || 'walk',
+    active: liveNavigation,
+    gpsConfiable: gpsDisponibleParaCamara,
+    mapRef: mapListo ? cameraMapRef : null,
+    onCameraUpdate: registrarActualizacionCamara,
+  });
+  const {
+    cameraMode,
+    handleGesture,
+    finishRecentering,
+    recenter,
+  } = cameraState;
+
+  useEffect(() => {
+    // El estado interno de la cámara y el metadato del frame deben converger
+    // después de una transición de gesto/GPS; el scheduler sigue siendo único.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCameraModeInput((actual) => (
+      actual === cameraMode ? actual : cameraMode
+    ));
+  }, [cameraMode]);
+
+  // RECENTERING representa la transición de cámara; al terminar su duración
+  // el hook vuelve a FOLLOWING para que el siguiente fix continúe acompañando.
+  useEffect(() => {
+    if (cameraMode !== CAMERA_MODES.RECENTERING) return undefined;
+    const timeout = setTimeout(finishRecentering, 250);
+    return () => clearTimeout(timeout);
+  }, [cameraMode, finishRecentering]);
+
+  const enSeguimiento = liveNavigation && gpsDisponibleParaCamara;
   const manejarInicioGesto = useCallback((event) => {
     // MapLibre emits the same lifecycle events for camera transitions started
     // by the application. Only an event with `originalEvent` is attributable
     // to a real pointer/touch/keyboard gesture by the user.
-    if (!event?.originalEvent) return;
-    if (enSeguimiento) dejarDeSeguir();
-  }, [enSeguimiento, dejarDeSeguir]);
+    if (!enSeguimiento) return;
+    handleGesture(event);
+  }, [enSeguimiento, handleGesture]);
 
-  const moviendo = (userPosition?.speed ?? 0) > VELOCIDAD_MIN_MS;
-  const rumboElegido = seleccionarRumbo({
-    moviendo,
-    rumboMovimiento: userPosition?.heading,
-    gpsConfiable,
-    rumboBrujula: orientacion.heading,
-    permisoBrujula: orientacion.permiso,
-    ultimaLecturaBrujula: orientacion.ultimaActualizacion,
-    // En cada render provocado por GPS o brújula, el timestamp más reciente
-    // ofrece un reloj estable sin ejecutar una función impura durante render.
-    ahora: Math.max(
-      Number.isFinite(ultimaActualizacion) ? ultimaActualizacion : 0,
-      Number.isFinite(orientacion.ultimaActualizacion) ? orientacion.ultimaActualizacion : 0,
-    ),
-    maxEdadBrujulaMs: EDAD_MAXIMA_BRUJULA_MS,
-    rumboRespaldo: tangenteRuta(ruta, avanceRuta?.indice),
-  });
-  const rotacionFlecha = rumboElegido
-    ? rotacionRelativaViewport(rumboElegido.rumbo, bearingViewport) ?? 0
-    : 0;
-  const rumboVisual = rumboElegido?.rumbo ?? null;
-  const fuenteRumbo = rumboElegido?.fuente ?? null;
+  const rotacionFlecha = frame?.arrowBearing == null
+    ? 0
+    : rotacionRelativaViewport(frame.arrowBearing, bearingViewport) ?? 0;
 
-  // El efecto se declara antes del retorno de carga para conservar el orden
-  // de hooks en todos los estados del mapa.
+  // La medición se ancla a la pose (un fix o una orientación aceptada), no a
+  // cada frame de RAF; así el scheduler no duplica el tramo GPS→marcador.
   useEffect(() => {
-    if (!userPosition || rumboVisual == null) return;
+    if (!poseForFrame || poseForFrame.arrowBearing == null) return;
     marcar(MARCAS.FLECHA_RENDER);
-    medir(
-      TRAMOS.ORIENTACION_FLECHA,
-      fuenteRumbo === 'brujula' ? MARCAS.ORIENTACION_CAMBIO : MARCAS.GPS_ACEPTADO,
-      MARCAS.FLECHA_RENDER,
-    );
-  }, [userPosition, rumboVisual, fuenteRumbo, rotacionFlecha]);
+    const marcaInicio = poseForFrame.bearingSource === BEARING_SOURCES.COMPASS
+      ? MARCAS.ORIENTACION_CAMBIO
+      : MARCAS.GPS_ACEPTADO;
+    medir(TRAMOS.ORIENTACION_FLECHA, marcaInicio, MARCAS.FLECHA_RENDER);
+  }, [poseForFrame]);
+
+  useEffect(() => {
+    if (!poseForFrame?.targetPosition && !poseForFrame?.rawPosition) return;
+    marcar(MARCAS.MARCADOR_RENDER);
+    medir(TRAMOS.GPS_MARCADOR, MARCAS.GPS_ACEPTADO, MARCAS.MARCADOR_RENDER);
+  }, [poseForFrame]);
 
   const mapStyle = useMemo(() => {
     // Con key configurada se monta una superficie local vacía mientras el
@@ -403,19 +484,6 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     if (token && !arcgisFallo) return EMPTY_MAP_STYLE;
     return OSM_RASTER_STYLE;
   }, [token, arcgisFallo]);
-
-  // Solo una transición real de la navegación inactiva a activa inicia el
-  // seguimiento. Una pérdida y recuperación de GPS no debe deshacer una pausa
-  // manual de la cámara dentro de la misma sesión.
-  useEffect(() => {
-    const sesionActiva = mostrarTrayecto && navegando;
-    if (!sesionActiva) {
-      sesionEnVivoRef.current = false;
-      return;
-    }
-    if (!sesionEnVivoRef.current) setSiguiendo(true);
-    sesionEnVivoRef.current = true;
-  }, [mostrarTrayecto, navegando]);
 
   // ─── Cámara ───────────────────────────────────────────────
   const manejarCargaMapa = useCallback((e) => {
@@ -504,37 +572,6 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       });
   }, [mapListo, token, isDark, arcgisFallo, aplicarBasemapArcgis, activarFallbackBasemap]);
 
-  // Al navegar y con seguimiento activo: centra en el usuario, ROTA el mapa
-  // hacia su rumbo (course-up) e inclina la cámara para el efecto 3D.
-  useEffect(() => {
-    if (!mapListo || !enSeguimiento || !siguiendo || !userPosition) return;
-    const map = mapRef.current;
-    if (!map) return;
-    const bearingMapa = map.getBearing?.();
-    const rumboCamara = normalizarRumbo(rumboVisual);
-    const bearing = rumboCamara != null
-      ? rumboCamara
-      : Number.isFinite(bearingMapa)
-        ? bearingMapa
-        : bearingViewportRef.current;
-    map.easeTo({
-      center: [userPosition.lng, userPosition.lat],
-      bearing,
-      pitch: PITCH_NAVEGACION,
-      zoom: Math.max(map.getZoom(), ZOOM_NAVEGACION),
-      duration: 250,
-    });
-    actualizarBearingViewport({ viewState: { bearing } });
-    marcar(MARCAS.CAMARA_ACTUALIZADA);
-    medir(TRAMOS.GPS_CAMARA, MARCAS.GPS_ACEPTADO, MARCAS.CAMARA_ACTUALIZADA);
-  }, [mapListo, enSeguimiento, siguiendo, userPosition, rumboVisual, actualizarBearingViewport]);
-
-  useEffect(() => {
-    if (orientacion.heading == null) return;
-    marcar(MARCAS.FLECHA_RENDER);
-    medir(TRAMOS.ORIENTACION_FLECHA, MARCAS.ORIENTACION_CAMBIO, MARCAS.FLECHA_RENDER);
-  }, [orientacion.heading]);
-
   useEffect(() => {
     if (!mostrarTrayecto || !tramos?.restante?.length) return;
     marcar(MARCAS.RUTA_RENDERIZADA);
@@ -561,11 +598,6 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   // ahí la cámara de seguimiento acompaña al usuario.
   useEffect(() => {
     if (!mapListo || !previsualizando || !ruta?.puntos || ruta.puntos.length < 2) return;
-    // Captura dev-only del GeoJSON completo entregado a MapLibre (Fase 4 GEOM-01):
-    // inactiva salvo que el humano active window.__capturarGeometria a mano en DevTools.
-    if (import.meta.env.DEV && window.__capturarGeometria === true) {
-      console.log('[captura-geometria] geojson-maplibre', JSON.stringify(lineaGeoJSON(ruta.puntos)));
-    }
     const map = mapRef.current;
     if (!map) return;
     let oeste = Infinity, sur = Infinity, este = -Infinity, norte = -Infinity;
@@ -596,18 +628,18 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     );
   }
 
-  // Rotación de la flecha:
-  //  - Navegando: el mapa ya gira (course-up), así que la flecha apunta arriba.
-  //  - Caminando (hay velocidad): manda el rumbo del GPS (dirección de marcha).
-  //  - Parado: manda la brújula (hacia dónde apuntas), como el cono de Google.
-  // `posicionAnimada` puede tardar un render en ponerse al día justo cuando
-  // `userPosition` pasa de null a un valor real (la transición la resuelve un
-  // efecto, no el render); se exige también acá para no leer .lat de null.
-  const haloVisible = userPosition && posicionAnimada && userPosition.accuracy > 25;
+  // El marcador y la cámara usan `frame.displayPosition`; la precisión solo
+  // controla el halo y no vuelve a introducir una segunda posición cruda.
+  const displayPosition = frame?.displayPosition;
+  const accuracyForFrame = poseForFrame?.accuracyM ?? userPosition?.accuracy;
+  const haloVisible = displayPosition
+    && Number.isFinite(accuracyForFrame)
+    && accuracyForFrame > 25;
 
   return (
     <div
       className="map-container"
+      data-camera-mode={cameraState.cameraMode}
       data-basemap-provider={basemapEstado === 'osm-fallback' ? 'osm-fallback' : basemapEstado === 'arcgis' ? 'arcgis' : undefined}
       data-basemap-style={basemapEstado === 'osm-fallback' ? 'osm-raster' : isDark ? BASEMAP_STYLES.dark : BASEMAP_STYLES.light}
     >
@@ -653,7 +685,7 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
 
         {/* Halo de precisión del GPS: transparencia honesta sobre el error. */}
         {haloVisible && (
-          <Source id="halo-precision" type="geojson" data={circuloGeoJSON(posicionAnimada.lat, posicionAnimada.lng, userPosition.accuracy)}>
+          <Source id="halo-precision" type="geojson" data={circuloGeoJSON(displayPosition.lat, displayPosition.lng, accuracyForFrame)}>
             <Layer id="halo-precision-fill" type="fill" paint={{ 'fill-color': colores.acento, 'fill-opacity': 0.08 }} />
             <Layer id="halo-precision-line" type="line" paint={{ 'line-color': colores.acento, 'line-opacity': 0.35, 'line-width': 1 }} />
           </Source>
@@ -695,10 +727,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         </Marker>
 
         {/* Marcador del usuario: flecha de navegación. */}
-        {userPosition && posicionAnimada && (
+        {displayPosition && (
           <Marker
-            longitude={posicionAnimada.lng}
-            latitude={posicionAnimada.lat}
+            longitude={displayPosition.lng}
+            latitude={displayPosition.lat}
             anchor="center"
             rotationAlignment="viewport"
             onClick={(e) => {
@@ -724,10 +756,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
             <p>{site.address}</p>
           </Popup>
         )}
-        {popup === 'user' && userPosition && posicionAnimada && (
+        {popup === 'user' && displayPosition && (
           <Popup
-            longitude={posicionAnimada.lng}
-            latitude={posicionAnimada.lat}
+            longitude={displayPosition.lng}
+            latitude={displayPosition.lat}
             anchor="bottom"
             offset={18}
             closeButton
@@ -791,9 +823,9 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
       )}
 
       {/* Volver a centrar la cámara sobre el usuario tras mover el mapa. */}
-      {enSeguimiento && !siguiendo && (
+      {enSeguimiento && cameraMode === CAMERA_MODES.FREE && (
         <div className="map-actions map-actions--recentrar">
-          <button className="map-actions__btn" onClick={() => setSiguiendo(true)}>
+          <button className="map-actions__btn" onClick={recenter}>
             <RiFocus3Line />
             <span>Centrar en mí</span>
           </button>
