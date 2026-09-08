@@ -18,6 +18,7 @@ Este milestone endurece la navegación en tiempo real ya existente (GPS, flecha,
 - [x] **Phase 5: Mantener la pantalla activa** - Screen Wake Lock aislado, con reintento tras segundo plano y degradación segura (completed 2026-09-01)
 - [x] **Phase 6: Tráfico ArcGIS** - Ruteo sensible al tráfico integrado; capa visual diferida por falta de evidencia suficiente
 - [ ] **Phase 7: Endurecimiento y UAT** - Suite automatizada integrada; UAT físico en Android Chrome e iPhone Safari pendiente
+- [ ] **Phase 8: Basemap vectorial ArcGIS Navigation** - Basemap vectorial oficial claro/oscuro en español, atribución y fallback diagnosticable; UAT HTTPS pendiente
 
 ## Phase Details
 
@@ -151,10 +152,38 @@ Plans:
 
 - [x] 07-03-PLAN.md — UAT-CHECKLIST sin coordenadas + lint/build/test locales (UAT físico pendiente de dispositivos)
 
+### Phase 8: Basemap vectorial ArcGIS Navigation
+
+**Goal**: Sustituir el estilo manual por el basemap vectorial oficial Navigation
+claro/oscuro, locale español y atribución correcta, separando la clave pública
+del basemap de las credenciales backend de routing y manteniendo OSM como
+fallback visual explícito.
+
+**Depends on**: Phase 7 (sin bloquear la corrección pendiente de UAT físico)
+
+**Requirements**: BASEMAP-01, BASEMAP-02, BASEMAP-03, BASEMAP-04
+
+**Success Criteria**:
+
+1. `@esri/maplibre-arcgis`/`BasemapStyle.applyStyle` aplica Navigation y
+   Navigation-night en español con atribución preservada.
+2. `ARCGIS_BASEMAP_API_KEY`, referrers y CSP de style/sprites/glyphs/tiles están
+   separados, probados y documentados sin secretos.
+3. Fallback OSM reporta proveedor/motivo y no se confunde con OSRM, proveedor
+   fallback de rutas.
+4. GPS, flecha, cámara, progreso, recálculo, voz y geometría no-regresan;
+   lint/build/tests pasan y UAT HTTPS móvil queda como checkpoint humano.
+
+**Plans**: 1 plan
+
+Plans:
+
+- [x] 08-01-PLAN.md — Separación de credenciales, integración Navigation/CSP, fallback y regresión
+
 ## Progress
 
 **Execution Order:**
-Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -165,3 +194,4 @@ Fases ejecutan en orden numérico: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 5. Mantener la pantalla activa | 1/1 | Complete    | 2026-09-01 |
 | 6. Tráfico ArcGIS | Implementación + investigación | TRAFFIC-01 integrado; TRAFFIC-02 diferido | 2026-09-01 (parcial) |
 | 7. Endurecimiento y UAT | 3/3 planes de suite/UAT-plantilla | Suite local verde; UAT físico PENDIENTE | 2026-09-01 (parcial) |
+| 8. Basemap vectorial ArcGIS Navigation | 1/1 | Implementación, revisión independiente y verificación local verdes; referrers/UAT HTTPS PENDIENTES | 2026-09-08 (parcial) |

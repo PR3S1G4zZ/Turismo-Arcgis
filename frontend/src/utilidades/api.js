@@ -143,19 +143,36 @@ export const rutasApi = {
 // ─── Basemap del mapa ───────────────────────────────────────
 export const mapaApi = {
   /**
-   * Token para el basemap vectorial de ArcGIS. El backend responde 204 (→ null)
-   * si no hay credenciales ArcGIS; en ese caso el mapa usa el respaldo raster
-   * sin credenciales.
-   * @returns {Promise<string|null>}
+   * Key pública y restringida del basemap vectorial de ArcGIS. Nunca llama a
+   * las credenciales privadas de routing. Devuelve un motivo estable para que
+   * el mapa pueda informar un fallback sin imprimir respuestas sensibles.
+   * @returns {Promise<{token:string|null,motivo:string,status?:number}>}
    */
   token: async () => {
     try {
       const data = await request('/api/mapa/token');
-      return data?.token || null;
-    } catch {
-      return null;
+      return {
+        token: data?.token || null,
+        motivo: data?.motivo || (data?.token ? null : 'not-configured'),
+        status: null,
+      };
+    } catch (error) {
+      const status = Number(error?.status) || null;
+      return {
+        token: null,
+        motivo: [401, 498].includes(status)
+          ? 'invalid-token'
+          : [403, 499].includes(status)
+            ? 'privilege-or-referrer'
+            : error?.name === 'AbortError'
+              ? 'timeout'
+              : 'network',
+        status,
+      };
     }
   },
+
+  estado: () => request('/api/mapa/estado'),
 };
 
 // ─── Ajustes ────────────────────────────────────────────────

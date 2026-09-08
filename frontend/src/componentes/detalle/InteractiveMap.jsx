@@ -8,8 +8,16 @@
 // El motor de navegación (rutas, voz, recálculo) vive en useNavegacion y no se
 // toca aquí: este componente solo dibuja y mueve la cámara.
 import { useEffect, useState, useContext, useCallback, useRef, useMemo } from 'react';
-import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
+import Map, {
+  AttributionControl,
+  Marker,
+  Popup,
+  Source,
+  Layer,
+  NavigationControl,
+} from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { BasemapStyle } from '@esri/maplibre-arcgis';
 import { RiNavigationLine, RiFocus3Line, RiCompass3Line } from 'react-icons/ri';
 import { NavegacionContext } from '../../contexto/NavegacionContext';
 import { useOrientacion } from '../../hooks/useOrientacion';
@@ -47,11 +55,48 @@ const OSM_RASTER_STYLE = {
   layers: [{ id: 'osm-raster', type: 'raster', source: 'osm' }],
 };
 
-/** URL del estilo vectorial de ArcGIS ("navigation" / "navigation-night"). */
-const estiloArcgis = (isDark, token) =>
-  `https://basemapstyles-api.arcgis.com/arcgis/rest/services/styles/v2/styles/arcgis/${
-    isDark ? 'navigation-night' : 'navigation'
-  }?token=${encodeURIComponent(token)}`;
+// Estilo inicial sin fuentes remotas. Cuando ArcGIS está configurado, evita
+// solicitar tiles OSM durante la carga nominal del basemap vectorial.
+const EMPTY_MAP_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [{
+    id: 'map-loading-background',
+    type: 'background',
+    paint: { 'background-color': '#e7e8ea' },
+  }],
+};
+
+const BASEMAP_STYLES = {
+  light: 'arcgis/navigation',
+  dark: 'arcgis/navigation-night',
+};
+
+const BASEMAP_REASON_LABELS = {
+  'not-configured': 'ArcGIS no está configurado; se usa OSM.',
+  'invalid-token': 'ArcGIS rechazó la clave (401/498); verifica su vigencia.',
+  'privilege-or-referrer': 'ArcGIS rechazó la clave (403/499); verifica Basemaps y los referrers.',
+  'api-key-required': 'ArcGIS requiere una API key con privilegio Basemaps.',
+  timeout: 'ArcGIS agotó el tiempo de respuesta; se usa OSM.',
+  network: 'No se pudo contactar ArcGIS; se usa OSM.',
+  'style-error': 'ArcGIS no pudo cargar el estilo; se usa OSM.',
+};
+
+function estadoBasemapError(error) {
+  const status = Number(error?.status ?? error?.response?.status ?? error?.response?.statusCode) || null;
+  const message = String(error?.message || error?.originalMessage || '').toLowerCase();
+  if ([401, 498].includes(status) || /invalid\s+(token|api\s*key)/i.test(message)) return 'invalid-token';
+  if ([403, 499].includes(status) || /not\s+authorized|unauthori[sz]ed|referrer|privilege/i.test(message)) {
+    return 'privilege-or-referrer';
+  }
+  if (/api\s*key\s*required/i.test(message)) return 'api-key-required';
+  if (error?.name === 'AbortError' || /timeout|timed out|network/i.test(message)) return 'timeout';
+  return 'network';
+}
+
+function etiquetaBasemap(motivo) {
+  return BASEMAP_REASON_LABELS[motivo] || BASEMAP_REASON_LABELS['style-error'];
+}
 
 // ─── Helpers geométricos (todo en [lng, lat] para GeoJSON/MapLibre) ─────────
 
@@ -174,6 +219,10 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   );
 
   const mapRef = useRef(null);
+  const mapaNativoRef = useRef(null);
+  const basemapRef = useRef(null);
+  const basemapTemaRef = useRef(null);
+  const esriAttributionRef = useRef(null);
   const [mapListo, setMapListo] = useState(false);
   const [bearingViewport, setBearingViewport] = useState(0);
   const bearingViewportRef = useRef(0);
@@ -195,12 +244,14 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const [loading, setLoading] = useState(() => !(site.lat && site.lng));
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
-  // Token del basemap de ArcGIS (null → se usa el respaldo OSM sin clave).
+  // Key pública y restringida del basemap ArcGIS (null → respaldo OSM).
   const [token, setToken] = useState(null);
   const [tokenListo, setTokenListo] = useState(false);
-  // Se activa si ArcGIS rechaza el token: entonces se cae al respaldo OSM.
+  // Se activa si ArcGIS rechaza la key o el estilo: entonces se cae al OSM.
   const [arcgisFallo, setArcgisFallo] = useState(false);
-  // Mensaje si el basemap no logra cargar (diagnóstico visible en el móvil).
+  const [basemapEstado, setBasemapEstado] = useState('loading');
+  const [basemapMotivo, setBasemapMotivo] = useState(null);
+  // Mensaje si el mapa no logra cargar (diagnóstico visible en el móvil).
   const [mapError, setMapError] = useState(null);
 
   // Colores de marca leídos de las variables CSS (MapLibre no entiende var()).
@@ -239,12 +290,19 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     return () => observer.disconnect();
   }, []);
 
-  // Token del basemap, una vez al montar.
+  // Credencial pública del basemap, una vez al montar. La API devuelve un
+  // motivo estable cuando falta configuración o el backend no está accesible;
+  // no se imprime la respuesta ni se confunde con un token de routing.
   useEffect(() => {
     let vivo = true;
-    mapaApi.token().then((t) => {
+    mapaApi.token().then((resultado) => {
       if (!vivo) return;
-      setToken(t);
+      // Compatibilidad con mocks/consumidores antiguos que devolvían string.
+      const siguienteToken = typeof resultado === 'string' ? resultado : resultado?.token;
+      const motivo = typeof resultado === 'string' ? null : resultado?.motivo;
+      setToken(siguienteToken || null);
+      setBasemapMotivo(motivo || (siguienteToken ? null : 'not-configured'));
+      setBasemapEstado(siguienteToken ? 'loading' : 'osm-fallback');
       setTokenListo(true);
     });
     return () => {
@@ -339,22 +397,12 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   }, [userPosition, rumboVisual, fuenteRumbo, rotacionFlecha]);
 
   const mapStyle = useMemo(() => {
-    if (token && !arcgisFallo) return estiloArcgis(isDark, token);
+    // Con key configurada se monta una superficie local vacía mientras el
+    // plugin solicita el estilo oficial; así ArcGIS es la ruta nominal y no
+    // se solicita OSM antes de conocer el resultado de esa carga.
+    if (token && !arcgisFallo) return EMPTY_MAP_STYLE;
     return OSM_RASTER_STYLE;
-  }, [token, isDark, arcgisFallo]);
-
-  // Asegura el token en TODA petición a ArcGIS (tiles, glyphs, sprites), no solo
-  // en la URL del estilo: si el servicio no las devuelve ya firmadas, el mapa se
-  // quedaría en blanco. Se evita el doble token si ya viene incluido.
-  const transformRequest = useCallback(
-    (url) => {
-      if (token && url.includes('.arcgis.com') && !/[?&]token=/.test(url)) {
-        return { url: `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` };
-      }
-      return { url };
-    },
-    [token]
-  );
+  }, [token, arcgisFallo]);
 
   // Solo una transición real de la navegación inactiva a activa inicia el
   // seguimiento. Una pérdida y recuperación de GPS no debe deshacer una pausa
@@ -375,11 +423,86 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
     setMapError(null);
     actualizarBearingViewport({ viewState: { bearing: e?.target?.getBearing?.() } });
     const map = e?.target;
+    mapaNativoRef.current = map || null;
     if (map?.cooperativeGestures) {
       if (showRoute) map.cooperativeGestures.disable();
       else map.cooperativeGestures.enable();
     }
   }, [actualizarBearingViewport, showRoute]);
+
+  const activarFallbackBasemap = useCallback((motivo = 'style-error') => {
+    const map = mapaNativoRef.current;
+    if (map && esriAttributionRef.current) {
+      map.removeControl?.(esriAttributionRef.current);
+    }
+    esriAttributionRef.current = null;
+    basemapRef.current = null;
+    basemapTemaRef.current = null;
+    setArcgisFallo(true);
+    setBasemapEstado('osm-fallback');
+    setBasemapMotivo(motivo);
+    // No se muestra el mensaje crudo del SDK: podría contener URL o token.
+    console.warn('[mapa] Basemap fallback', { basemap: 'osm-fallback', motivo });
+  }, []);
+
+  const aplicarBasemapArcgis = useCallback((map, apiKey, dark) => {
+    const style = dark ? BASEMAP_STYLES.dark : BASEMAP_STYLES.light;
+    try {
+      const basemap = BasemapStyle.applyStyle(map, {
+        style,
+        token: apiKey,
+        preferences: { language: 'es' },
+        attributionControl: { compact: true },
+      });
+      basemapRef.current = basemap;
+      basemapTemaRef.current = style;
+      setBasemapEstado('arcgis-loading');
+      setBasemapMotivo(null);
+
+      basemap.on?.('BasemapStyleLoad', () => {
+        if (basemapRef.current !== basemap) return;
+        setBasemapEstado('arcgis');
+        console.info('[mapa] Basemap ArcGIS activo', { basemap: 'arcgis', style, language: 'es' });
+      });
+      basemap.on?.('BasemapAttributionLoad', (control) => {
+        esriAttributionRef.current = control;
+      });
+      basemap.on?.('BasemapStyleError', (error) => {
+        if (basemapRef.current !== basemap) return;
+        activarFallbackBasemap(estadoBasemapError(error));
+      });
+    } catch (error) {
+      activarFallbackBasemap(estadoBasemapError(error));
+    }
+  }, [activarFallbackBasemap]);
+
+  // El plugin controla el estilo vectorial y la atribución Esri. La key queda
+  // fuera de las credenciales privadas de routing y no se añade manualmente a
+  // URLs ajenas al estilo oficial.
+  useEffect(() => {
+    const map = mapaNativoRef.current;
+    if (!mapListo || !map) return;
+
+    if (!token || arcgisFallo) return;
+
+    const style = isDark ? BASEMAP_STYLES.dark : BASEMAP_STYLES.light;
+    if (!basemapRef.current) {
+      aplicarBasemapArcgis(map, token, isDark);
+      return;
+    }
+    if (basemapTemaRef.current === style) return;
+
+    const basemap = basemapRef.current;
+    basemapTemaRef.current = style;
+    setBasemapEstado('arcgis-loading');
+    Promise.resolve(basemap.updateStyle?.({ style, preferences: { language: 'es' } }))
+      .then(() => {
+        if (basemapRef.current === basemap) setBasemapEstado('arcgis');
+      })
+      .catch((error) => {
+        if (basemapRef.current === basemap) activarFallbackBasemap(estadoBasemapError(error));
+      });
+  }, [mapListo, token, isDark, arcgisFallo, aplicarBasemapArcgis, activarFallbackBasemap]);
 
   // Al navegar y con seguimiento activo: centra en el usuario, ROTA el mapa
   // hacia su rumbo (course-up) e inclina la cámara para el efecto 3D.
@@ -483,7 +606,11 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
   const haloVisible = userPosition && posicionAnimada && userPosition.accuracy > 25;
 
   return (
-    <div className="map-container">
+    <div
+      className="map-container"
+      data-basemap-provider={basemapEstado === 'osm-fallback' ? 'osm-fallback' : basemapEstado === 'arcgis' ? 'arcgis' : undefined}
+      data-basemap-style={basemapEstado === 'osm-fallback' ? 'osm-raster' : isDark ? BASEMAP_STYLES.dark : BASEMAP_STYLES.light}
+    >
       <Map
         ref={mapRef}
         cooperativeGestures={!showRoute}
@@ -499,35 +626,29 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
           zoom: enSeguimiento ? ZOOM_NAVEGACION : ZOOM_VISTA,
         }}
         mapStyle={mapStyle}
-        transformRequest={transformRequest}
         onMove={actualizarBearingViewport}
         onError={(e) => {
-          const status = e?.error?.status;
-          const msg = e?.error?.message || String(e?.error || 'error desconocido');
-          console.error('[mapa] MapLibre error:', status, msg, e);
-          // ArcGIS puede devolver un documento de error con HTTP 200 (por
-          // ejemplo, "API KEY REQUIRED"). También en ese caso se cambia al
-          // respaldo sin credenciales, en vez de dejar el mapa en blanco.
-          const arcgisRechazado = token && !arcgisFallo && (
-            [401, 403, 498, 499].includes(status)
-            || /api\s*key\s*required|invalid\s+token|not\s+authorized|unauthori[sz]ed/i.test(msg)
-          );
-          if (arcgisRechazado) {
-            console.warn(`[mapa] Basemap de ArcGIS rechazado (${status || 'respuesta de error'}); usando respaldo OSM.`);
-            setArcgisFallo(true);
+          // ArcGIS puede devolver HTTP 200 con "API KEY REQUIRED". Todo error
+          // durante la carga nominal activa el fallback, pero solo se conserva
+          // una categoría segura, nunca el objeto/URL crudo del SDK.
+          if (token && !arcgisFallo && basemapEstado !== 'arcgis') {
+            activarFallbackBasemap(estadoBasemapError(e?.error));
             return;
           }
-          // El aviso solo aparece si el mapa aún no cargó su estilo (fallo real
-          // del basemap); los errores transitorios de tiles ya en marcha se ignoran.
-          if (!mapListo) setMapError(`${status ? status + ' – ' : ''}${msg}`);
+          if (!mapListo) setMapError('No se pudo cargar el mapa. Revisa la red o la configuración del basemap.');
         }}
         onDragStart={manejarInicioGesto}
         onRotateStart={manejarInicioGesto}
         onPitchStart={manejarInicioGesto}
         onZoomStart={manejarInicioGesto}
-        attributionControl={{ compact: true }}
+        // BasemapStyle añade la atribución oficial de Esri/proveedores. Para
+        // OSM se monta el control equivalente de react-map-gl debajo.
+        attributionControl={false}
         style={{ width: '100%', height: '100%' }}
       >
+        {basemapEstado === 'osm-fallback' && (
+          <AttributionControl compact customAttribution="© OpenStreetMap contributors" />
+        )}
         <NavigationControl position="top-right" visualizePitch={true} showZoom={true} showCompass={true} />
 
         {/* Halo de precisión del GPS: transparencia honesta sobre el error. */}
@@ -619,7 +740,30 @@ export const InteractiveMap = ({ site, onStartRoute, showRoute = false }) => {
         )}
       </Map>
 
-      {/* Diagnóstico: el basemap no cargó (visible en el móvil). */}
+      {/* Diagnóstico no intrusivo y seguro: deja claro cuándo OSM es fallback. */}
+      {basemapEstado === 'osm-fallback' && (
+        <div
+          className="map-basemap-status"
+          role="status"
+          data-basemap-provider="osm-fallback"
+          style={{
+            position: 'absolute',
+            left: '8px',
+            bottom: '8px',
+            maxWidth: 'calc(100% - 16px)',
+            padding: '5px 8px',
+            borderRadius: '4px',
+            background: 'rgba(20, 24, 32, 0.82)',
+            color: '#fff',
+            fontSize: '11px',
+            zIndex: 2,
+          }}
+        >
+          Basemap: OSM (fallback). {etiquetaBasemap(basemapMotivo)}
+        </div>
+      )}
+
+      {/* Diagnóstico: el mapa no cargó (visible en el móvil). */}
       {mapError && (
         <div className="map-error-banner">
           <span>Mapa base no cargó: {mapError}</span>

@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-current_phase: 7
-current_phase_name: Endurecimiento y UAT
-status: testing
-stopped_at: Production review integrated; physical mobile UAT pending
-last_updated: "2026-09-01T16:40:00.000Z"
-last_activity: 2026-09-01
-last_activity_desc: Phases 1–7 implementation branches integrated; production and mobile verification remain
+current_phase: 8
+current_phase_name: Basemap vectorial ArcGIS Navigation
+status: awaiting-human
+stopped_at: Phase 8 implementation and independent review complete; production key/referrers and physical mobile UAT pending
+last_updated: "2026-09-08"
+last_activity: 2026-09-08
+last_activity_desc: Phase 8 implementation, independent Claude review, local verification and integration completed; referrers and UAT remain
 state_head: integration
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 1
-  implementation_phases: 7
-  physical_validation_pending: [1, 2, 4, 7]
-  percent: 86
+  implementation_phases: 8
+  physical_validation_pending: [1, 2, 4, 7, 8]
+  percent: 88
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-01)
 
 **Core value:** Que la navegación en tiempo real sea confiable y responsiva — la flecha, la cámara y el progreso deben reflejar la posición y el rumbo reales del visitante sin retraso perceptible ni orientaciones incorrectas, manteniendo la geometría de ArcGIS como fuente de verdad.
-**Current focus:** Phase 7 — Endurecimiento y UAT
+**Current focus:** Phase 8 — Basemap vectorial ArcGIS Navigation
 
 ## Current Position
 
-Phase: 7 — Endurecimiento y UAT
-Plan: Automated suite integrated
-Status: Physical device validation pending
-Last activity: 2026-09-01 — Phases 1-7 integrated; production review completed locally
+Phase: 8 — Basemap vectorial ArcGIS Navigation
+Plan: 08-01 — Implementation and verification complete
+Status: Local implementation and verification complete; production referrers and physical device validation pending
+Last activity: 2026-09-08 — ArcGIS Navigation integration, Claude review and final local verification completed
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
